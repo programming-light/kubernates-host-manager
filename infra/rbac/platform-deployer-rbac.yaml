@@ -1,0 +1,166 @@
+---
+# Namespace for platform integration
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-system
+  labels:
+    app.kubernetes.io/name: platform-system
+    app.kubernetes.io/managed-by: k8s-platform
+
+---
+# Service Account for platform integration
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-deployer
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: platform-deployer
+    app.kubernetes.io/managed-by: k8s-platform
+
+---
+# ClusterRole with minimal required permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-deployer
+  labels:
+    app.kubernetes.io/name: platform-deployer
+    app.kubernetes.io/managed-by: k8s-platform
+rules:
+  # Deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # StatefulSets
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "statefulsets/scale"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # DaemonSets
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # Jobs and CronJobs
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # Ingresses
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # ConfigMaps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Secrets (limited - only read)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  
+  # PersistentVolumeClaims
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  
+  # Pods and Logs (read-only for monitoring)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  
+  # Pod execution (for debugging)
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  
+  # Namespaces (read-only for discovery)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  
+  # Events (for diagnostics)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  
+  # HorizontalPodAutoscalers
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # NetworkPolicies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # PodDisruptionBudgets
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-deployer
+  labels:
+    app.kubernetes.io/name: platform-deployer
+    app.kubernetes.io/managed-by: k8s-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: platform-deployer
+subjects:
+  - kind: ServiceAccount
+    name: platform-deployer
+    namespace: platform-system
+
+---
+# Optional: Role for namespace-specific permissions
+# Use this if you want to restrict to specific namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-deployer-namespace
+  namespace: default  # Change to your namespace
+  labels:
+    app.kubernetes.io/name: platform-deployer
+    app.kubernetes.io/managed-by: k8s-platform
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+# Optional: RoleBinding for namespace-specific permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-deployer-namespace
+  namespace: default  # Change to your namespace
+  labels:
+    app.kubernetes.io/name: platform-deployer
+    app.kubernetes.io/managed-by: k8s-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-deployer-namespace
+subjects:
+  - kind: ServiceAccount
+    name: platform-deployer
+    namespace: platform-system

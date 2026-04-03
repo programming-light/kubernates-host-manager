@@ -1,0 +1,352 @@
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+const RUNTIME_TEMPLATES = [
+  // Frontend templates
+  {
+    name: 'Next.js',
+    slug: 'nextjs',
+    description: 'React framework with built-in SSR and static generation',
+    baseImage: 'node:18-alpine',
+    containerPort: 3000,
+    startCommand: 'npm start',
+    buildCommand: 'npm run build',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'frontend',
+    icon: '⚛️',
+  },
+  {
+    name: 'React',
+    slug: 'react',
+    description: 'React with Create React App',
+    baseImage: 'node:18-alpine',
+    containerPort: 3000,
+    startCommand: 'npm start',
+    buildCommand: 'npm run build',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'frontend',
+    icon: '⚛️',
+  },
+  {
+    name: 'Vue.js',
+    slug: 'vue',
+    description: 'Vue.js web framework',
+    baseImage: 'node:18-alpine',
+    containerPort: 3000,
+    startCommand: 'npm run serve',
+    buildCommand: 'npm run build',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'frontend',
+    icon: '🖖',
+  },
+  {
+    name: 'Angular',
+    slug: 'angular',
+    description: 'Angular full-stack framework',
+    baseImage: 'node:18-alpine',
+    containerPort: 4200,
+    startCommand: 'npm start',
+    buildCommand: 'npm run build',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'frontend',
+    icon: '🅰️',
+  },
+  {
+    name: 'Svelte',
+    slug: 'svelte',
+    description: 'Svelte framework',
+    baseImage: 'node:18-alpine',
+    containerPort: 5000,
+    startCommand: 'npm run dev',
+    buildCommand: 'npm run build',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'frontend',
+    icon: '🔥',
+  },
+
+  // Backend templates
+  {
+    name: 'Node.js / Express',
+    slug: 'nodejs-express',
+    description: 'Node.js with Express.js framework',
+    baseImage: 'node:18-alpine',
+    containerPort: 3000,
+    startCommand: 'node app.js',
+    buildCommand: 'npm install',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'backend',
+    icon: '⚙️',
+  },
+  {
+    name: 'Python / Flask',
+    slug: 'python-flask',
+    description: 'Python with Flask web framework',
+    baseImage: 'python:3.11-slim',
+    containerPort: 5000,
+    startCommand: 'python app.py',
+    buildCommand: 'pip install -r requirements.txt',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'backend',
+    icon: '🐍',
+  },
+  {
+    name: 'Python / Django',
+    slug: 'python-django',
+    description: 'Python with Django web framework',
+    baseImage: 'python:3.11-slim',
+    containerPort: 8000,
+    startCommand: 'gunicorn config.wsgi',
+    buildCommand: 'pip install -r requirements.txt',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'backend',
+    icon: '🐍',
+  },
+  {
+    name: 'Python / FastAPI',
+    slug: 'python-fastapi',
+    description: 'Python with FastAPI framework',
+    baseImage: 'python:3.11-slim',
+    containerPort: 8000,
+    startCommand: 'uvicorn main:app --host 0.0.0.0',
+    buildCommand: 'pip install -r requirements.txt',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'backend',
+    icon: '🐍',
+  },
+  {
+    name: 'Go',
+    slug: 'golang',
+    description: 'Go programming language',
+    baseImage: 'golang:1.21-alpine',
+    containerPort: 8080,
+    startCommand: './app',
+    buildCommand: 'go build -o app .',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'backend',
+    icon: '🔷',
+  },
+  {
+    name: 'Rust',
+    slug: 'rust',
+    description: 'Rust web framework (Actix/Axum)',
+    baseImage: 'rust:latest',
+    containerPort: 8080,
+    startCommand: './target/release/app',
+    buildCommand: 'cargo build --release',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'backend',
+    icon: '🦀',
+  },
+  {
+    name: 'Java / Spring Boot',
+    slug: 'java-springboot',
+    description: 'Java with Spring Boot framework',
+    baseImage: 'openjdk:17-slim',
+    containerPort: 8080,
+    startCommand: 'java -jar app.jar',
+    buildCommand: 'mvn clean package',
+    cpuRequest: 0.5,
+    memoryRequest: 512,
+    category: 'backend',
+    icon: '☕',
+  },
+  {
+    name: '.NET / ASP.NET',
+    slug: 'dotnet-aspnet',
+    description: '.NET with ASP.NET framework',
+    baseImage: 'mcr.microsoft.com/dotnet/aspnet:7.0',
+    containerPort: 5000,
+    startCommand: 'dotnet app.dll',
+    buildCommand: 'dotnet build',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'backend',
+    icon: '#️⃣',
+  },
+  {
+    name: 'PHP / Laravel',
+    slug: 'php-laravel',
+    description: 'PHP with Laravel framework',
+    baseImage: 'php:8.2-fpm',
+    containerPort: 9000,
+    startCommand: 'php artisan serve',
+    buildCommand: 'composer install',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'backend',
+    icon: '🐘',
+  },
+  {
+    name: 'Ruby / Rails',
+    slug: 'ruby-rails',
+    description: 'Ruby with Rails framework',
+    baseImage: 'ruby:3.2',
+    containerPort: 3000,
+    startCommand: 'rails server',
+    buildCommand: 'bundle install',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'backend',
+    icon: '💎',
+  },
+
+  // Database templates
+  {
+    name: 'PostgreSQL',
+    slug: 'postgresql',
+    description: 'PostgreSQL relational database',
+    baseImage: 'postgres:15',
+    containerPort: 5432,
+    startCommand: 'postgres',
+    cpuRequest: 0.5,
+    memoryRequest: 512,
+    category: 'database',
+    icon: '🐘',
+  },
+  {
+    name: 'MySQL',
+    slug: 'mysql',
+    description: 'MySQL relational database',
+    baseImage: 'mysql:8.0',
+    containerPort: 3306,
+    startCommand: 'mysqld',
+    cpuRequest: 0.5,
+    memoryRequest: 512,
+    category: 'database',
+    icon: '🐬',
+  },
+  {
+    name: 'MongoDB',
+    slug: 'mongodb',
+    description: 'MongoDB NoSQL database',
+    baseImage: 'mongo:7.0',
+    containerPort: 27017,
+    startCommand: 'mongod --bind_ip_all',
+    cpuRequest: 0.5,
+    memoryRequest: 512,
+    category: 'database',
+    icon: '🍃',
+  },
+
+  // Cache templates
+  {
+    name: 'Redis',
+    slug: 'redis',
+    description: 'Redis in-memory cache',
+    baseImage: 'redis:7-alpine',
+    containerPort: 6379,
+    startCommand: 'redis-server',
+    cpuRequest: 0.1,
+    memoryRequest: 256,
+    category: 'cache',
+    icon: '⚡',
+  },
+  {
+    name: 'Memcached',
+    slug: 'memcached',
+    description: 'Memcached distributed memory cache',
+    baseImage: 'memcached:1.6-alpine',
+    containerPort: 11211,
+    startCommand: 'memcached -u memcache',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'cache',
+    icon: '💾',
+  },
+
+  // Queue/Message templates
+  {
+    name: 'RabbitMQ',
+    slug: 'rabbitmq',
+    description: 'RabbitMQ message broker',
+    baseImage: 'rabbitmq:3.12-management-alpine',
+    containerPort: 5672,
+    startCommand: 'rabbitmq-server',
+    cpuRequest: 0.2,
+    memoryRequest: 256,
+    category: 'message_queue',
+    icon: '🐰',
+  },
+  {
+    name: 'Apache Kafka',
+    slug: 'kafka',
+    description: 'Apache Kafka distributed streaming',
+    baseImage: 'confluentinc/cp-kafka:7.5.0',
+    containerPort: 9092,
+    startCommand: '/etc/confluent/docker/run',
+    cpuRequest: 0.5,
+    memoryRequest: 512,
+    category: 'message_queue',
+    icon: '📬',
+  },
+
+  // Utility templates
+  {
+    name: 'Nginx',
+    slug: 'nginx',
+    description: 'Nginx web server',
+    baseImage: 'nginx:alpine',
+    containerPort: 80,
+    startCommand: 'nginx -g "daemon off;"',
+    cpuRequest: 0.1,
+    memoryRequest: 64,
+    category: 'utility',
+    icon: '🔀',
+  },
+  {
+    name: 'Traefik',
+    slug: 'traefik',
+    description: 'Traefik reverse proxy',
+    baseImage: 'traefik:v2.10',
+    containerPort: 80,
+    startCommand: 'traefik',
+    cpuRequest: 0.1,
+    memoryRequest: 128,
+    category: 'utility',
+    icon: '🔀',
+  },
+];
+
+async function main() {
+  console.log('Seeding runtime templates...');
+
+  for (const template of RUNTIME_TEMPLATES) {
+    try {
+      const existing = await prisma.runtimeTemplate.findUnique({
+        where: { slug: template.slug },
+      });
+
+      if (!existing) {
+        await prisma.runtimeTemplate.create({
+          data: {
+            ...template,
+            isPublic: true,
+          },
+        });
+        console.log(`✓ Created template: ${template.name}`);
+      } else {
+        console.log(`✓ Template already exists: ${template.name}`);
+      }
+    } catch (error) {
+      console.error(`✗ Error creating template ${template.name}:`, error);
+    }
+  }
+
+  console.log('Seeding complete!');
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

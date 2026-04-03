@@ -1,0 +1,904 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== Users & Authentication =====
+
+model User {
+  id                    String   @id @default(cuid())
+  email                 String   @unique
+  password              String   // Argon2 hashed
+  name                  String
+  avatar                String?
+  
+  // Email verification
+  emailVerified         Boolean  @default(false)
+  emailVerificationToken String?
+  emailVerificationExpiresAt DateTime?
+  
+  // Password reset
+  passwordResetToken    String?
+  passwordResetExpiresAt DateTime?
+  
+  // Global role (super_admin, admin, support)
+  globalRole            GlobalUserRole @default(TENANT_OWNER)
+  
+  // Session management
+  lastLoginAt           DateTime?
+  lastLoginIp           String?
+  loginAttempts         Int      @default(0)
+  lockedUntil           DateTime?
+  
+  // Relations - User belongs to multiple workspaces
+  workspaceMembers         WorkspaceMember[]
+  ownedWorkspaces          Workspace[]       @relation("workspace_owner")
+  refreshTokens            RefreshToken[]
+  auditLogs                AuditLog[]
+  clusterAuditLogs         ClusterAuditLog[] @relation("cluster_audit")
+  planAuditLogs            PlanAuditLog[]
+  deployments              Deployment[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([email])
+  @@index([globalRole])
+}
+
+enum GlobalUserRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  TENANT_OWNER
+  TENANT_MEMBER
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  token     String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  token     String   @unique
+  expiresAt DateTime
+  
+  createdAt DateTime @default(now())
+  
+  @@index([email])
+  @@index([token])
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([email])
+  @@index([token])
+}
+
+// ===== Workspaces (replacing Tenants) & Multi-tenancy =====
+
+model Workspace {
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  description       String?
+  avatar            String?
+  
+  // Owner
+  ownerId           String
+  owner             User     @relation("workspace_owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  // Billing
+  subscriptionId    String?
+  subscription      Subscription?
+  
+  // Relations
+  members              WorkspaceMember[]
+  clusters             Cluster[]
+  projects             Project[]
+  domains              Domain[]
+  apiKeys              ApiKey[]
+  auditLogs            AuditLog[]
+  clusterAuditLogs     ClusterAuditLog[]  @relation("cluster_audit")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([slug])
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role        WorkspaceMemberRole @default(MEMBER)
+  permissions String[]            // Array of permission strings
+  
+  invitedBy   String?
+  invitedAt   DateTime @default(now())
+  acceptedAt  DateTime?
+  removedAt   DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+enum WorkspaceMemberRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+  MEMBER
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name        String
+  key         String   @unique
+  secret      String   @unique
+  
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([workspaceId])
+  @@index([key])
+}
+
+// Keep Tenant as a deprecated alias for backward compatibility
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  
+  // Relations
+  plans          TenantPlan[]
+  subscriptions  Subscription[]  @relation("tenant_subscription")
+  auditLogs      AuditLog[]      @relation("tenant_audit")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([slug])
+}
+
+// ===== Plans & Billing =====
+
+model Plan {
+  id                    String   @id @default(cuid())
+  
+  // Basic info
+  name                  String   @unique
+  slug                  String   @unique
+  description           String?
+  
+  // Pricing (in cents to avoid floating point)
+  monthlyPriceCents     Int      @default(0)  // in cents, e.g., 2999 = $29.99
+  yearlyPriceCents      Int      @default(0)  // in cents
+  
+  // Resource limits
+  cpuLimit              Float    @default(0.5)  // CPU cores
+  memoryLimitMb         Int      @default(512)   // RAM in MB
+  storageLimitGb        Int      @default(10)    // Storage in GB
+  bandwidthLimitGb      Int      @default(100)   // Bandwidth in GB
+  
+  // Feature limits
+  maxApps               Int      @default(1)
+  maxDomains            Int      @default(1)
+  
+  // Feature flags
+  autoscalingEnabled    Boolean  @default(false)
+  backupEnabled         Boolean  @default(false)
+  databaseEnabled       Boolean  @default(false)
+  redisEnabled          Boolean  @default(false)
+  
+  // Support & extras
+  supportLevel          SupportLevel @default(COMMUNITY)
+  trialDays             Int      @default(0)   // 0 = no trial
+  
+  // Visibility
+  isPublic              Boolean  @default(true)   // Show on pricing page
+  isDefault             Boolean  @default(false)  // For new workspaces
+  sortOrder             Int      @default(999)
+  
+  // Metadata
+  icon                  String?   // Icon or emoji identifier
+  color                 String?   // Color code for UI
+  
+  // Relations
+  features              PlanFeature[]
+  overages              OverageRule[]
+  subscriptions         Subscription[]
+  planAuditLogs         PlanAuditLog[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([isPublic])
+  @@index([sortOrder])
+}
+
+model PlanFeature {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  name      String   // e.g., "GitHub Integration", "Custom Domains"
+  included  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([planId, name])
+  @@index([planId])
+}
+
+model OverageRule {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  // Overage type
+  overage   OverageType
+  
+  // Pricing: $X per unit
+  pricePerUnit Float   @default(0)  // Cost per GB, per core, etc.
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([planId, overage])
+  @@index([planId])
+}
+
+enum SupportLevel {
+  NONE
+  COMMUNITY    // Forum support
+  EMAIL        // Email support
+  PRIORITY     // Priority support
+  DEDICATED    // Dedicated support
+}
+
+enum OverageType {
+  CPU
+  MEMORY
+  STORAGE
+  BANDWIDTH
+}
+
+model TenantPlan {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([tenantId, planId])
+  @@index([tenantId])
+  @@index([planId])
+}
+
+model PlanAuditLog {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action    String   // "created", "updated", "deleted"
+  changes   String?  // JSON of what changed
+  
+  createdAt DateTime @default(now())
+  
+  @@index([planId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Subscription {
+  id                  String              @id @default(cuid())
+  
+  workspaceId         String?             @unique
+  workspace           Workspace?          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  tenantId            String?
+  tenant              Tenant?             @relation("tenant_subscription", fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  planId              String
+  plan                Plan                @relation(fields: [planId], references: [id], onDelete: Restrict)
+  
+  status              SubscriptionStatus  @default(ACTIVE)
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  cancelledAt         DateTime?
+  
+  // Billing
+  billingHistory      BillingHistory[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([workspaceId])
+  @@index([tenantId])
+  @@index([planId])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  PENDING
+}
+
+model BillingHistory {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  amount          Float
+  currency        String   @default("USD")
+  status          String   @default("paid")
+  invoiceUrl      String?
+  paidAt          DateTime?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([subscriptionId])
+}
+
+// ===== Kubernetes Clusters =====
+
+model Cluster {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  provider        ClusterProvider
+  region          String
+  status          ClusterStatus   @default(ACTIVE)
+  environment     ClusterEnvironment @default(PRODUCTION)
+  
+  // Connection mode
+  connectionMode  ConnectionMode @default(TOKEN) // TOKEN or KUBECONFIG
+  
+  // Credentials (all encrypted in database)
+  // Token mode fields
+  apiEndpoint     String
+  caCertificateBase64  String?  // Encrypted base64 encoded
+  token           String?        // Encrypted
+  
+  // Kubeconfig mode fields
+  kubeconfigBase64     String?   // Encrypted base64 encoded kubeconfig
+  
+  // Cluster info (cached from API)
+  kubernetesVersion    String?
+  nodeCount            Int      @default(0)
+  lastHealthCheckAt    DateTime?
+  lastHealthCheckStatus String?  // "HEALTHY" or error message
+  
+  // Relations
+  projects             Project[]
+  clusterCredentials   ClusterCredential[]
+  auditLogs           ClusterAuditLog[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model ClusterCredential {
+  id          String   @id @default(cuid())
+  clusterId   String
+  cluster     Cluster  @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  
+  // Credentials (encrypted)
+  apiEndpoint String
+  caCertificateBase64  String?
+  token       String?
+  kubeconfigBase64     String?
+  
+  // Metadata
+  name        String   // e.g., "primary", "backup"
+  isActive    Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([clusterId, name])
+  @@index([clusterId])
+}
+
+model ClusterAuditLog {
+  id          String   @id @default(cuid())
+  clusterId   String
+  cluster     Cluster  @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  
+  workspaceId String
+  workspace   Workspace @relation("cluster_audit", fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  userId      String?
+  user        User?    @relation("cluster_audit", fields: [userId], references: [id], onDelete: SetNull)
+  
+  action      String   // "test_connection", "health_check", "create", "update", "delete"
+  result      String   // "SUCCESS" or error message
+  details     String?  // JSON details
+  
+  createdAt DateTime @default(now())
+  
+  @@index([clusterId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum ClusterProvider {
+  EKS
+  GKE
+  AKS
+  DIGITAL_OCEAN
+  CIVO
+  LINODE
+  VULTR
+  CUSTOM
+  MINIKUBE
+  DOCKER_DESKTOP
+  KIND
+  K3D
+}
+
+enum ClusterStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  UNKNOWN
+}
+
+enum ClusterEnvironment {
+  LOCAL
+  STAGING
+  PRODUCTION
+}
+
+enum ConnectionMode {
+  TOKEN      // API server + token + CA cert
+  KUBECONFIG // Kubeconfig base64
+}
+
+// ===== Projects & Deployments =====
+
+model Project {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  clusterId   String
+  cluster     Cluster  @relation(fields: [clusterId], references: [id], onDelete: Restrict)
+  
+  // Basic info
+  name        String
+  slug        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  
+  // Container image info
+  imageUrl    String?      // Docker image to deploy (e.g., docker.io/nginx:latest)
+  imagePullSecret String?  // K8s secret name for private registries
+  
+  // Git deployment (optional)
+  gitUrl      String?      // GitHub/GitLab/Gitea repo URL
+  gitBranch   String       @default("main")
+  gitCommitSha String?     // Latest deployed commit
+  
+  // Build settings (if building from git)
+  buildCommand    String?  // Build container from source
+  
+  // Runtime settings
+  containerPort   Int      @default(3000)
+  startCommand    String?  // Custom start command
+  
+  // Kubernetes namespace
+  namespace   String
+  
+  // Resource requests/limits
+  cpuRequest    Float    @default(0.1)  // in cores
+  cpuLimit      Float    @default(0.5)
+  memoryRequest Int      @default(128)  // in MB
+  memoryLimit   Int      @default(512)
+  
+  // Storage
+  storageGb     Int      @default(0)
+  
+  // Replicas & autoscaling
+  replicas      Int      @default(1)
+  minReplicas   Int      @default(1)
+  maxReplicas   Int      @default(5)
+  autoscale     Boolean  @default(false)
+  cpuThreshold  Int      @default(70)   // CPU % for autoscaling
+  
+  // Health check
+  healthCheckEnabled   Boolean  @default(true)
+  healthCheckPath      String   @default("/health")
+  healthCheckInterval  Int      @default(10)
+  healthCheckTimeout   Int      @default(5)
+  
+  // Relations
+  deployments            Deployment[]
+  deploymentRevisions    DeploymentRevision[]
+  deploymentEvents       DeploymentEvent[]
+  environmentVariables   ProjectEnvironmentVariable[] @relation("project_env")
+  environments           Environment[]                 @relation("project_env_legacy")
+  domainMappings         DomainMapping[]
+  domains                Domain[]
+  addons                 ProjectAddon[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([clusterId])
+  @@index([status])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Deployment {
+  id                String              @id @default(cuid())
+  projectId         String
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision          Int                 // Deployment version/revision number
+  status            DeploymentStatus    @default(PENDING)
+  
+  // Image info
+  imageUrl          String              // Docker image deployed (e.g., docker.io/nginx:latest)
+  imagePullPolicy   String              @default("IfNotPresent")
+  
+  // Git deployment info (if applicable)
+  gitCommitSha      String?
+  gitCommitMessage  String?
+  
+  // Deployment source
+  deploymentSource  DeploymentSource    @default(DOCKER_IMAGE)
+  
+  // Deployment triggers and metadata
+  deployedBy        String?
+  deployedByUser    User?               @relation(fields: [deployedBy], references: [id], onDelete: SetNull)
+  triggeredBy       String?             // CI/CD trigger, webhook, manual, etc
+  
+  // Logs
+  buildLogs         String?
+  deploymentLogs    String?
+  
+  // Timestamps
+  startedAt         DateTime?
+  completedAt       DateTime?
+  errorAt           DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  // Relations
+  revisions         DeploymentRevision[]
+  events            DeploymentEvent[]
+  jobs              DeploymentJob[]
+  
+  @@unique([projectId, revision])
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DeploymentRevision {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deploymentId  String
+  deployment    Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  
+  revision      Int      // Revision number for this deployment
+  
+  // Configuration snapshot
+  imageUrl      String
+  config        String   // JSON snapshot of deployment config
+  
+  createdAt     DateTime @default(now())
+  
+  @@unique([deploymentId, revision])
+  @@index([projectId])
+  @@index([deploymentId])
+}
+
+model DeploymentEvent {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deploymentId  String
+  deployment    Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  
+  type          String   // "created", "building", "deployed", "failed", "error"
+  message       String
+  metadata      String?  // JSON additional details
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([projectId])
+  @@index([deploymentId])
+  @@index([createdAt])
+}
+
+model DeploymentJob {
+  id            String   @id @default(cuid())
+  deploymentId  String
+  deployment    Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  
+  type          String   // "clone", "build", "push", "deploy", "health_check"
+  status        String   @default("pending")
+  
+  output        String?
+  error         String?
+  
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  
+  @@index([deploymentId])
+  @@index([status])
+}
+
+enum DeploymentStatus {
+  PENDING          // Waiting to start
+  QUEUED           // In job queue
+  BUILDING         // Building Docker image
+  PACKAGING        // Packaging for push
+  DEPLOYING        // Creating K8s resources
+  PROVISIONING     // Waiting for pods
+  RUNNING          // Successfully running
+  UNHEALTHY        // Health checks failing
+  FAILED           // Deployment failed
+  STOPPED          // User stopped it
+  DELETED          // User deleted it
+  ROLLBACK_PENDING // Rollback queued
+  ROLLED_BACK      // Rolled back to previous
+}
+
+enum DeploymentSource {
+  DOCKER_IMAGE     // Direct Docker image from registry
+  GIT_REPOSITORY   // Build from git repo
+  UPLOADED_TAR     // Uploaded tar/zip
+  TEMPLATE         // From template marketplace
+}
+
+// Environment variables per project
+model ProjectEnvironmentVariable {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation("project_env", fields: [projectId], references: [id], onDelete: Cascade)
+  
+  key       String
+  value     String   // Encrypted at rest
+  isSecret  Boolean  @default(false)  // Hide in UI
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([projectId, key])
+  @@index([projectId])
+}
+
+// Legacy model for backward compatibility
+model Environment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation("project_env_legacy", fields: [projectId], references: [id], onDelete: Cascade)
+  name      String   @default("default")
+  variables String   // JSON stringified Record<string, string>
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+// Custom domain mappings
+model DomainMapping {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  domain    String
+  path      String   @default("/")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([projectId, domain])
+  @@index([projectId])
+}
+
+// Add-ons like databases, caches, etc
+model ProjectAddon {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  type      String   // "postgresql", "redis", "mongodb", etc
+  name      String
+  status    String   @default("provisioning")
+  config    String?  // JSON config
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+// Runtime templates for quick setup
+model RuntimeTemplate {
+  id          String   @id @default(cuid())
+  
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  
+  // Base Docker image
+  baseImage   String
+  
+  // Suggested configuration
+  containerPort    Int      @default(3000)
+  startCommand     String   @default("npm start")
+  buildCommand     String?
+  
+  // Default limits
+  cpuRequest       Float    @default(0.1)
+  memoryRequest    Int      @default(128)
+  
+  // Template metadata
+  icon             String?
+  category         String?  // "backend", "frontend", "database", "cache"
+  isPublic         Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([category])
+  @@index([isPublic])
+}
+
+// ===== Domains & SSL =====
+
+model Domain {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  domain      String
+  status      DomainStatus @default(PENDING)
+  dnsRecord   String?
+  
+  // SSL Certificate
+  certificates SSLCertificate[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([workspaceId, domain])
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  ERROR
+}
+
+model SSLCertificate {
+  id        String   @id @default(cuid())
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  provider  String   @default("letsencrypt")
+  issuer    String?
+  expiresAt DateTime
+  status    String   @default("active")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([domainId])
+}
+
+// ===== Audit Logging =====
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  
+  workspaceId   String?
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  tenantId      String?
+  tenant        Tenant?  @relation("tenant_audit", fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action        String   // e.g., "deployment.created", "project.updated"
+  resourceType  String   // e.g., "deployment", "project"
+  resourceId    String
+  changes       String?  // JSON stringified changes
+  
+  ipAddress     String?
+  userAgent     String?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([workspaceId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ===== Feature Flags =====
+
+model FeatureFlag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  enabled   Boolean  @default(false)
+  value     String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

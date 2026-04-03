@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: k8s-platform-postgres
+    environment:
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: k8s_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devuser -d k8s_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - k8s-platform
+
+  redis:
+    image: redis:7-alpine
+    container_name: k8s-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - k8s-platform
+
+  adminer:
+    image: adminer:latest
+    container_name: k8s-platform-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - k8s-platform
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  k8s-platform:
+    driver: bridge

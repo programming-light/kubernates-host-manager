@@ -1,0 +1,74 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-migration
+  namespace: k8s-platform
+spec:
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app: database-migration
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      containers:
+      - name: migration
+        image: k8s-platform/backend:latest
+        imagePullPolicy: Always
+        command:
+        - sh
+        - -c
+        - |
+          npm run prisma:migrate:deploy && \
+          npm run prisma:seed
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: url
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database-migration
+  namespace: k8s-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: database-migration
+  namespace: k8s-platform
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: database-migration
+  namespace: k8s-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: database-migration
+subjects:
+- kind: ServiceAccount
+  name: database-migration
+  namespace: k8s-platform

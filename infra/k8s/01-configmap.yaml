@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-platform-config
+  namespace: k8s-platform
+data:
+  BACKEND_PORT: "3001"
+  FRONTEND_URL: "https://app.k8s-platform.io"
+  NEXT_PUBLIC_API_URL: "https://api.k8s-platform.io/api"
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  ENABLE_BILLING: "true"
+  ENABLE_ADMIN_PANEL: "true"
+  ENABLE_AUDIT_LOGS: "true"
+  CORS_ORIGINS: "https://app.k8s-platform.io,https://dashboard.k8s-platform.io"
