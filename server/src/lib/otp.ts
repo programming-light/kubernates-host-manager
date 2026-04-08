@@ -1,0 +1,36 @@
+import * as crypto from 'crypto';
+
+const otpStore = new Map<string, { code: string; expiresAt: number }>();
+
+export function generateOTP(email: string): string {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  
+  otpStore.set(email, { code, expiresAt });
+  
+  return code;
+}
+
+export function verifyOTP(email: string, code: string): boolean {
+  const record = otpStore.get(email);
+  
+  if (!record) return false;
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(email);
+    return false;
+  }
+  
+  const isValid = record.code === code;
+  if (isValid) otpStore.delete(email);
+  
+  return isValid;
+}
+
+export function getOTP(email: string): string | null {
+  const record = otpStore.get(email);
+  if (!record || Date.now() > record.expiresAt) {
+    if (record) otpStore.delete(email);
+    return null;
+  }
+  return record.code;
+}

@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("developer")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaces     Workspace[]
+  subscription   Subscription?
+  payments       Payment[]
+  userResources  UserResource[]
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner      User        @relation(fields: [ownerId], references: [id])
+  clusters   Cluster[]
+  projects   Project[]
+}
+
+model PricingPlan {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  price       Float
+  interval    String   @default("monthly")
+  isActive    Boolean  @default(true)
+  features    Json
+  limits      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  planId      String
+  status      String    @default("active")
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id])
+  plan        PricingPlan  @relation(fields: [planId], references: [id])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  userId        String
+  amount        Float
+  currency      String   @default("USD")
+  method        String
+  transactionId String?
+  status        String   @default("pending")
+  paymentUrl    String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model UserResource {
+  id          String   @id @default(cuid())
+  userId      String
+  resourceType String
+  allocated   Float
+  used        Float    @default(0)
+  unit        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Cluster {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  provider    String
+  region      String
+  status      String   @default("active")
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  projects    Project[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  gitUrl      String?
+  status      String   @default("active")
+  clusterId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  cluster     Cluster   @relation(fields: [clusterId], references: [id])
+}

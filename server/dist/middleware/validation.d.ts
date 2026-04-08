@@ -1,0 +1,10 @@
+import { Request, Response, NextFunction } from 'express';
+export declare const validate: (req: Request, res: Response, next: NextFunction) => Response<any, Record<string, any>> | undefined;
+export declare const registerValidation: import("express-validator").ValidationChain[];
+export declare const loginValidation: import("express-validator").ValidationChain[];
+export declare const workspaceValidation: import("express-validator").ValidationChain[];
+export declare const clusterValidation: import("express-validator").ValidationChain[];
+export declare const projectValidation: import("express-validator").ValidationChain[];
+export declare const deploymentValidation: import("express-validator").ValidationChain[];
+export declare const idParamValidation: import("express-validator").ValidationChain[];
+export declare const queryValidation: import("express-validator").ValidationChain[];
