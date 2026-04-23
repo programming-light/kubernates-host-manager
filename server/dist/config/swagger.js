@@ -41,7 +41,7 @@ const options = {
                     properties: {
                         accessToken: { type: 'string' },
                         refreshToken: { type: 'string' },
-                        expiresIn: { type: 'number', example: 900 },
+                        expiresIn: { type: 'number', example: 90000 },
                     },
                 },
                 Workspace: {

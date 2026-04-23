@@ -33,6 +33,11 @@ class KubernetesConfigManager {
 
   async loadConfig(): Promise<K8sConfig> {
     const provider = (process.env.K8S_PROVIDER || 'minikube') as K8sProvider;
+    log.info(`Loading config for provider: ${provider}`);
+    log.info(`MINIKUBE_IP: ${process.env.MINIKUBE_IP || 'not set'}`);
+    log.info(`MINIKUBE_TOKEN: ${process.env.MINIKUBE_TOKEN ? 'set' : 'not set'}`);
+    log.info(`MINIKUBE_KUBECONFIG: ${process.env.MINIKUBE_KUBECONFIG || 'not set'}`);
+    
     this.kc = new k8s.KubeConfig();
 
     try {
@@ -106,16 +111,20 @@ class KubernetesConfigManager {
 
   private expandPath(p: string): string {
     if (p.startsWith('~')) {
-      return path.join(process.env.HOME || '', p.slice(1));
+      const home = process.env.HOME || process.env.USERPROFILE || '';
+      return path.join(home, p.slice(1));
     }
     return p;
   }
 
   private loadKubeConfigFile(filePath: string): void {
     const expandedPath = this.expandPath(filePath);
+    log.info(`Attempting to load kubeconfig from: ${expandedPath}`);
+    log.info(`File exists: ${fs.existsSync(expandedPath)}`);
     if (fs.existsSync(expandedPath)) {
       this.kc!.loadFromFile(expandedPath);
     } else {
+      log.info('Kubeconfig file not found, trying loadFromDefault()');
       this.kc!.loadFromDefault();
     }
   }

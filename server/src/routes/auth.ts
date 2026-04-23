@@ -86,7 +86,7 @@
  *         description: Invalid or expired refresh token
  */
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, {SignOptions} from 'jsonwebtoken';
 import prisma from '../lib/prisma.js';
 import log from '../lib/logger.js';
 import { generateOTP, verifyOTP, getOTP } from '../lib/otp.js';
@@ -96,6 +96,10 @@ const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || 'your-super-secret-refresh-key';
+const refreshTokenExp = (process.env.refreshTokenExp || "7d")  as SignOptions["expiresIn"];
+const accessTokenExp = (process.env.accessTokenExp || "1d") as SignOptions["expiresIn"];
+
+
 
 if (process.env.NODE_ENV === 'development') {
   router.post('/dev-login', async (req, res) => {
@@ -228,12 +232,21 @@ router.post('/otp/verify', async (req, res) => {
     const existingUser = await prisma.user.findUnique({ where: { email } });
 
     if (existingUser) {
-      const accessToken = jwt.sign({ userId: existingUser.id, email: existingUser.email }, JWT_SECRET, { expiresIn: '15m' });
-      const refreshToken = jwt.sign({ userId: existingUser.id }, REFRESH_SECRET, { expiresIn: '7d' });
+      const accessToken = jwt.sign(
+        { userId: existingUser.id, email: existingUser.email },
+        JWT_SECRET,
+        { expiresIn: accessTokenExp },
+      );
+      
+      const refreshToken = jwt.sign(
+        { userId: existingUser.id },
+        REFRESH_SECRET,
+        { expiresIn: refreshTokenExp },
+      );
       return res.json({ 
         accessToken, 
         refreshToken, 
-        expiresIn: 900,
+        expiresIn: accessTokenExp,
         isNewUser: false,
         isComplete: true
       });
@@ -242,20 +255,20 @@ router.post('/otp/verify', async (req, res) => {
     const user = await prisma.user.create({
       data: {
         email,
-        name: null,
+        name: "Unknown",
         role: 'developer',
       },
     });
 
-    const accessToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '15m' });
-    const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
+    const accessToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: accessTokenExp });
+    const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, {expiresIn: refreshTokenExp});
 
-    res.status(201).json({ 
-      accessToken, 
-      refreshToken, 
-      expiresIn: 900,
+    res.status(201).json({
+      accessToken,
+      refreshToken,
+      expiresIn: accessTokenExp,
       isNewUser: true,
-      isComplete: false
+      isComplete: false,
     });
   } catch (error) {
     log.error('OTP verification error:', error);
@@ -313,10 +326,16 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized', message: 'User not found' });
     }
 
-    const accessToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '15m' });
-    const newRefreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email },
+      JWT_SECRET, { expiresIn: accessTokenExp });
+    const newRefreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, {expiresIn: refreshTokenExp});
 
-    res.json({ accessToken, refreshToken: newRefreshToken, expiresIn: 900 });
+    res.json({
+      accessToken,
+      refreshToken: newRefreshToken,
+      expiresIn: accessTokenExp,
+    });
   } catch {
     res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired refresh token' });
   }
