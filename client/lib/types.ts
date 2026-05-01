@@ -71,3 +71,115 @@ export interface Deployment {
   startedAt: string;
   completedAt?: string;
 }
+
+export interface K8sStatus {
+  connected: boolean;
+  provider?: string;
+  apiServer?: string;
+  namespace?: string;
+  error?: string;
+}
+
+export interface K8sNamespace {
+  name: string;
+  status: string;
+  labels: Record<string, string>;
+  createdAt: string;
+}
+
+export interface K8sPod {
+  name: string;
+  namespace: string;
+  status: string;
+  ready: string;
+  restarts: number;
+  age: string;
+  containers: string[];
+  node?: string;
+}
+
+export interface K8sService {
+  name: string;
+  namespace: string;
+  type: string;
+  clusterIP: string;
+  externalIP: string[];
+  ports: string[];
+  selector: Record<string, string>;
+}
+
+export interface K8sNode {
+  name: string;
+  status: string;
+  roles: string[];
+  cpu?: string;
+  memory?: string;
+  pods?: string;
+  age: string;
+  version?: string;
+}
+
+export interface K8sDeployment {
+  name: string;
+  namespace: string;
+  replicas?: number;
+  readyReplicas?: number;
+  availableReplicas?: number;
+  age: string;
+  images: string[];
+}
+
+export interface K8sIngress {
+  name: string;
+  namespace: string;
+  hosts: string[];
+  tls: string[][];
+  age: string;
+}
+
+export interface PricingPlan {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  price: number;
+  interval: string;
+  isActive: boolean;
+  features: string[];
+  limits: Record<string, number>;
+}
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  planId: string;
+  status: string;
+  startDate: string;
+  endDate?: string;
+  plan?: PricingPlan;
+}
+
+export interface UserResource {
+  id: string;
+  userId: string;
+  resourceType: string;
+  allocated: number;
+  used: number;
+  unit: string;
+}
+
+export interface Payment {
+  id: string;
+  userId: string;
+  amount: number;
+  currency: string;
+  method: string;
+  transactionId?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface BillingInfo {
+  subscription: Subscription | null;
+  resources: UserResource[];
+}

@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore, useProjectStore } from '@/store';
 import api from '@/lib/api';
-import { Project, Cluster, Workspace } from '@/lib/types';
+import { Project } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { Plus, Boxes, Trash2, Loader2, GitBranch, Clock, Server } from 'lucide-react';
+import { Plus, Boxes, Trash2, Loader2, GitBranch, Clock, Server, Cloud } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
+  const { projects, setProjects, removeProject } = useProjectStore();
   const [loading, setLoading] = useState(true);
+  const [k8sConnected, setK8sConnected] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -22,16 +23,16 @@ export default function ProjectsPage() {
 
   const fetchData = async () => {
     try {
-      const [prRes, clRes] = await Promise.all([
+      const [prRes, k8sRes] = await Promise.all([
         api.get('/projects'),
-        api.get('/clusters'),
+        api.get('/kubernetes/status'),
       ]);
       
       const prData = await prRes.json();
-      const clData = await clRes.json();
+      const k8sData = await k8sRes.json();
       
       setProjects(Array.isArray(prData) ? prData : []);
-      setClusters(Array.isArray(clData) ? clData : []);
+      setK8sConnected(k8sData.connected || false);
     } catch (error: any) {
       toast.error(error.message || 'Failed to load projects');
     } finally {
@@ -39,12 +40,14 @@ export default function ProjectsPage() {
     }
   };
 
-  const deleteProject = async (id: string) => {
+  const deleteProject = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm('Are you sure you want to delete this project?')) return;
     
     try {
       await api.delete(`/projects/${id}`);
-      setProjects(projects.filter(p => p.id !== id));
+      removeProject(id);
       toast.success('Project deleted');
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete project');
@@ -74,7 +77,7 @@ export default function ProjectsPage() {
           <h1 className="text-3xl font-bold text-white">Projects</h1>
           <p className="mt-1 text-gray-400">Manage your projects</p>
         </div>
-        {clusters.length > 0 ? (
+        {k8sConnected ? (
           <Link href="/dashboard/projects/new">
             <Button className="bg-blue-600 hover:bg-blue-700">
               <Plus className="mr-2 h-4 w-4" />
@@ -82,10 +85,10 @@ export default function ProjectsPage() {
             </Button>
           </Link>
         ) : (
-          <Link href="/dashboard/clusters/new">
+          <Link href="/dashboard/kubernetes">
             <Button className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Cluster First
+              <Cloud className="mr-2 h-4 w-4" />
+              Connect Kubernetes First
             </Button>
           </Link>
         )}
@@ -99,7 +102,7 @@ export default function ProjectsPage() {
             </div>
             <h3 className="text-lg font-semibold text-white">No projects yet</h3>
             <p className="mt-1 text-sm text-gray-400">Create your first project</p>
-            {clusters.length > 0 ? (
+            {k8sConnected ? (
               <Link href="/dashboard/projects/new">
                 <Button className="mt-4">
                   <Plus className="mr-2 h-4 w-4" />
@@ -107,9 +110,10 @@ export default function ProjectsPage() {
                 </Button>
               </Link>
             ) : (
-              <Link href="/dashboard/clusters/new">
+              <Link href="/dashboard/kubernetes">
                 <Button className="mt-4">
-                  Add Cluster First
+                  <Cloud className="mr-2 h-4 w-4" />
+                  Connect Kubernetes First
                 </Button>
               </Link>
             )}
@@ -118,60 +122,55 @@ export default function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project, index) => (
-            <Card 
-              key={project.id}
-              className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-700">
-                      <Boxes className="h-6 w-6 text-white" />
+            <Link key={project.id} href={`/dashboard/projects/${project.id}`}>
+              <Card 
+                className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20 cursor-pointer"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-700">
+                        <Boxes className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-white">{project.name}</CardTitle>
+                        <CardDescription className="text-xs text-gray-500">/{project.slug}</CardDescription>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-white">{project.name}</CardTitle>
-                      <CardDescription className="text-xs text-gray-500">/{project.slug}</CardDescription>
-                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(project.status)}`}>
+                      {project.status}
+                    </span>
                   </div>
-                  <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(project.status)}`}>
-                    {project.status}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-400">
-                  {project.description || 'No description'}
-                </p>
-                <div className="mt-3 space-y-2 text-xs text-gray-500">
-                  {project.gitUrl && (
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-gray-400">
+                    {project.description || 'No description'}
+                  </p>
+                  <div className="mt-3 space-y-2 text-xs text-gray-500">
+                    {project.gitUrl && (
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-3 w-3" />
+                        <span className="truncate">{project.gitUrl}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
-                      <GitBranch className="h-3 w-3" />
-                      <span className="truncate">{project.gitUrl}</span>
+                      <Server className="h-3 w-3" />
+                      <span>Namespace: {project.namespace}</span>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Server className="h-3 w-3" />
-                    <span>Namespace: {project.namespace}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-3 w-3" />
-                    <span>Replicas: {project.replicas}</span>
-                  </div>
-                </div>
-                <div className="mt-4 flex gap-2">
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => deleteProject(project.id)}
+                    className="mt-4 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => deleteProject(project.id, e)}
                   >
                     <Trash2 className="mr-1 h-4 w-4" />
                     Delete
                   </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

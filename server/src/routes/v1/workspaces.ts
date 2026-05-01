@@ -135,7 +135,7 @@
  */
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
-import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, type AuthRequest } from '../../middleware/auth.js';
 
 const router = Router();
 

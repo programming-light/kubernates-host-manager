@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import api from './api';
 import { User } from './types';
 
@@ -9,6 +10,7 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,6 +18,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -26,6 +30,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    if (!loading && !user && pathname !== '/auth') {
+      const currentPath = pathname;
+      if (currentPath?.startsWith('/dashboard')) {
+        router.push('/auth');
+      }
+    }
+  }, [loading, user, pathname, router]);
+
   const fetchUser = async () => {
     try {
       const response = await api.get('/auth/me');
@@ -34,20 +47,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      setUser(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshUser = async () => {
+    await fetchUser();
   };
 
   const logout = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     setUser(null);
+    router.push('/auth');
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, isAuthenticated: !!user, logout }}
+      value={{ user, loading, isAuthenticated: !!user, logout, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

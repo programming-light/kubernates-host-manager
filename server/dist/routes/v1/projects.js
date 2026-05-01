@@ -4,7 +4,6 @@
  *   - name: Projects
  *     description: Project management
  */
-
 /**
  * @swagger
  * /api/projects:
@@ -32,7 +31,6 @@
  *               items:
  *                 $ref: '#/components/schemas/Project'
  */
-
 /**
  * @swagger
  * /api/projects:
@@ -73,7 +71,6 @@
  *             schema:
  *               $ref: '#/components/schemas/Project'
  */
-
 /**
  * @swagger
  * /api/projects/{id}:
@@ -96,7 +93,6 @@
  *             schema:
  *               $ref: '#/components/schemas/Project'
  */
-
 /**
  * @swagger
  * /api/projects/{id}:
@@ -115,7 +111,6 @@
  *       200:
  *         description: Project updated
  */
-
 /**
  * @swagger
  * /api/projects/{id}:
@@ -136,97 +131,75 @@
  */
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
-import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-
+import { authMiddleware } from '../../middleware/auth.js';
 const router = Router();
-
-interface Project {
-  id: string;
-  workspaceId: string;
-  clusterId: string;
-  name: string;
-  slug: string;
-  description?: string;
-  gitUrl?: string;
-  status: string;
-  namespace: string;
-  replicas: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const projects: Map<string, Project> = new Map();
-
-router.get('/', authMiddleware, (req: AuthRequest, res) => {
-  const { workspaceId, clusterId } = req.query;
-  let userProjects: Project[] = [];
-  
-  projects.forEach((project) => {
-    if (!workspaceId || project.workspaceId === workspaceId) {
-      if (!clusterId || project.clusterId === clusterId) {
-        userProjects.push(project);
-      }
+const projects = new Map();
+router.get('/', authMiddleware, (req, res) => {
+    const { workspaceId, clusterId } = req.query;
+    let userProjects = [];
+    projects.forEach((project) => {
+        if (!workspaceId || project.workspaceId === workspaceId) {
+            if (!clusterId || project.clusterId === clusterId) {
+                userProjects.push(project);
+            }
+        }
+    });
+    res.json(userProjects);
+});
+router.post('/', authMiddleware, (req, res) => {
+    const { workspaceId, clusterId, name, description, gitUrl, namespace, replicas } = req.body;
+    const project = {
+        id: uuid(),
+        workspaceId: workspaceId || 'default',
+        clusterId,
+        name,
+        slug: name.toLowerCase().replace(/\s+/g, '-'),
+        description,
+        gitUrl,
+        status: 'active',
+        namespace: namespace || 'default',
+        replicas: replicas || 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    };
+    projects.set(project.id, project);
+    res.status(201).json(project);
+});
+router.get('/:id', authMiddleware, (req, res) => {
+    const project = projects.get(req.params.id);
+    if (!project) {
+        return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
     }
-  });
-  res.json(userProjects);
+    res.json(project);
 });
-
-router.post('/', authMiddleware, (req: AuthRequest, res) => {
-  const { workspaceId, clusterId, name, description, gitUrl, namespace, replicas } = req.body;
-
-  const project: Project = {
-    id: uuid(),
-    workspaceId: workspaceId || 'default',
-    clusterId,
-    name,
-    slug: name.toLowerCase().replace(/\s+/g, '-'),
-    description,
-    gitUrl,
-    status: 'active',
-    namespace: namespace || 'default',
-    replicas: replicas || 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  projects.set(project.id, project);
-  res.status(201).json(project);
+router.put('/:id', authMiddleware, (req, res) => {
+    const project = projects.get(req.params.id);
+    if (!project) {
+        return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
+    }
+    const { name, description, gitUrl, status, namespace, replicas } = req.body;
+    if (name)
+        project.name = name;
+    if (description !== undefined)
+        project.description = description;
+    if (gitUrl !== undefined)
+        project.gitUrl = gitUrl;
+    if (status)
+        project.status = status;
+    if (namespace)
+        project.namespace = namespace;
+    if (replicas)
+        project.replicas = replicas;
+    project.updatedAt = new Date();
+    projects.set(project.id, project);
+    res.json(project);
 });
-
-router.get('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const project = projects.get(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
-  }
-  res.json(project);
+router.delete('/:id', authMiddleware, (req, res) => {
+    if (!projects.has(req.params.id)) {
+        return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
+    }
+    projects.delete(req.params.id);
+    res.status(204).send();
 });
-
-router.put('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const project = projects.get(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
-  }
-
-  const { name, description, gitUrl, status, namespace, replicas } = req.body;
-  if (name) project.name = name;
-  if (description !== undefined) project.description = description;
-  if (gitUrl !== undefined) project.gitUrl = gitUrl;
-  if (status) project.status = status;
-  if (namespace) project.namespace = namespace;
-  if (replicas) project.replicas = replicas;
-  project.updatedAt = new Date();
-
-  projects.set(project.id, project);
-  res.json(project);
-});
-
-router.delete('/:id', authMiddleware, (req: AuthRequest, res) => {
-  if (!projects.has(req.params.id)) {
-    return res.status(404).json({ error: 'Not Found', message: 'Project not found' });
-  }
-  projects.delete(req.params.id);
-  res.status(204).send();
-});
-
 export default router;
 export { projects };

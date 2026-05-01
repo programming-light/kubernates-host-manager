@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore, useClusterStore, useWorkspaceStore } from '@/store';
 import api from '@/lib/api';
 import { Cluster, Workspace } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,8 +13,8 @@ import { toast } from 'sonner';
 
 export default function ClustersPage() {
   const router = useRouter();
-  const [clusters, setClusters] = useState<Cluster[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const { clusters, setClusters, removeCluster } = useClusterStore();
+  const { workspaces, setWorkspaces } = useWorkspaceStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,12 +40,14 @@ export default function ClustersPage() {
     }
   };
 
-  const deleteCluster = async (id: string) => {
+  const deleteCluster = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm('Are you sure you want to delete this cluster?')) return;
     
     try {
       await api.delete(`/clusters/${id}`);
-      setClusters(clusters.filter(c => c.id !== id));
+      removeCluster(id);
       toast.success('Cluster deleted');
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete cluster');
@@ -58,10 +61,6 @@ export default function ClustersPage() {
       case 'error': return 'text-red-400 bg-red-500/10';
       default: return 'text-gray-400 bg-gray-500/10';
     }
-  };
-
-  const getProviderIcon = (provider: string) => {
-    return <Cloud className="h-5 w-5" />;
   };
 
   if (loading) {
@@ -123,54 +122,53 @@ export default function ClustersPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {clusters.map((cluster, index) => (
-            <Card 
-              key={cluster.id}
-              className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-700">
-                      <Server className="h-6 w-6 text-white" />
+            <Link key={cluster.id} href={`/dashboard/clusters/${cluster.id}`}>
+              <Card 
+                className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20 cursor-pointer"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-700">
+                        <Server className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-white">{cluster.name}</CardTitle>
+                        <CardDescription className="text-xs text-gray-500">{cluster.provider}</CardDescription>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-white">{cluster.name}</CardTitle>
-                      <CardDescription className="text-xs text-gray-500">{cluster.provider}</CardDescription>
+                    <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(cluster.status)}`}>
+                      <Activity className="mr-1 h-3 w-3" />
+                      {cluster.status}
                     </div>
                   </div>
-                  <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(cluster.status)}`}>
-                    <Activity className="mr-1 h-3 w-3" />
-                    {cluster.status}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="mt-3 space-y-2 text-sm text-gray-400">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="h-4 w-4 text-gray-500" />
-                    <span>{cluster.provider}</span>
-                  </div>
-                  {cluster.region && (
+                </CardHeader>
+                <CardContent>
+                  <div className="mt-3 space-y-2 text-sm text-gray-400">
                     <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-gray-500" />
-                      <span>{cluster.region}</span>
+                      <Cloud className="h-4 w-4 text-gray-500" />
+                      <span>{cluster.provider}</span>
                     </div>
-                  )}
-                </div>
-                <div className="mt-4 flex gap-2">
+                    {cluster.region && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-gray-500" />
+                        <span>{cluster.region}</span>
+                      </div>
+                    )}
+                  </div>
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => deleteCluster(cluster.id)}
+                    className="mt-4 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => deleteCluster(cluster.id, e)}
                   >
                     <Trash2 className="mr-1 h-4 w-4" />
                     Delete
                   </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

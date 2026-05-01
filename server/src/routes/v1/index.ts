@@ -1,0 +1,24 @@
+import { Router } from 'express';
+import authRoutes from './auth.js';
+import userRoutes from './users.js';
+import workspaceRoutes from './workspaces.js';
+import clusterRoutes from './clusters.js';
+import projectRoutes from './projects.js';
+import deploymentRoutes from './deployments.js';
+import kubernetesRoutes from './kubernetes.js';
+import planRoutes from './plans.js';
+import paymentRoutes from './payments.js';
+
+const router = Router();
+
+router.use('/auth', authRoutes);
+router.use('/auth', userRoutes);
+router.use('/workspaces', workspaceRoutes);
+router.use('/clusters', clusterRoutes);
+router.use('/projects', projectRoutes);
+router.use('/deployments', deploymentRoutes);
+router.use('/kubernetes', kubernetesRoutes);
+router.use('/plans', planRoutes);
+router.use('/payments', paymentRoutes);
+
+export default router;

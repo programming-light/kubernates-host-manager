@@ -5,99 +5,17 @@
  *     description: Kubernetes cluster management
  */
 
-/**
- * @swagger
- * /api/clusters:
- *   get:
- *     tags: [Clusters]
- *     summary: List all clusters
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: workspaceId
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: List of clusters
- */
-
-/**
- * @swagger
- * /api/clusters:
- *   post:
- *     tags: [Clusters]
- *     summary: Create a cluster for workspace
- *     description: Creates a cluster using provider config from .env
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - workspaceId
- *               - name
- *             properties:
- *               workspaceId:
- *                 type: string
- *               name:
- *                 type: string
- *     responses:
- *       201:
- *         description: Cluster created
- */
-
-/**
- * @swagger
- * /api/clusters/{id}:
- *   get:
- *     tags: [Clusters]
- *     summary: Get cluster details
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Cluster details
- */
-
-/**
- * @swagger
- * /api/clusters/{id}:
- *   delete:
- *     tags: [Clusters]
- *     summary: Delete cluster
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       204:
- *         description: Cluster deleted
- */
-import { Router } from 'express';
-import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import prisma from '../lib/prisma.js';
-import log from '../lib/logger.js';
-import { k8sConfigManager } from '../lib/k8s-config.js';
+import { Router, Request, Response } from 'express';
+import { authMiddleware, type AuthRequest } from '../../middleware/auth.js';
+import prisma from '../../lib/prisma.js';
+import log from '../../lib/logger.js';
+import { k8sConfigManager } from '../../lib/k8s-config.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req: AuthRequest, res) => {
+router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).userId;
     const { workspaceId } = req.query;
     
     const where = workspaceId ? { workspaceId: workspaceId as string } : {};
@@ -114,8 +32,9 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/', authMiddleware, async (req: AuthRequest, res) => {
+router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).userId;
     const { workspaceId, name } = req.body;
 
     if (!workspaceId || !name) {
@@ -123,7 +42,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     }
 
     const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-    if (!workspace || workspace.ownerId !== req.userId) {
+    if (!workspace || workspace.ownerId !== userId) {
       return res.status(403).json({ error: 'Forbidden', message: 'Invalid workspace' });
     }
 
@@ -147,8 +66,9 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
+router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).userId;
     const cluster = await prisma.cluster.findUnique({
       where: { id: req.params.id },
       include: { workspace: true },
@@ -158,7 +78,7 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Not Found', message: 'Cluster not found' });
     }
 
-    if (cluster.workspace.ownerId !== req.userId) {
+    if (cluster.workspace.ownerId !== userId) {
       return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
     }
 
@@ -186,8 +106,9 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).userId;
     const cluster = await prisma.cluster.findUnique({
       where: { id: req.params.id },
       include: { workspace: true },
@@ -197,7 +118,7 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Not Found', message: 'Cluster not found' });
     }
 
-    if (cluster.workspace.ownerId !== req.userId) {
+    if (cluster.workspace.ownerId !== userId) {
       return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
     }
 
@@ -209,19 +130,20 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/:id/resources', authMiddleware, async (req: AuthRequest, res) => {
+router.get('/:id/resources', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).userId;
     const cluster = await prisma.cluster.findUnique({
       where: { id: req.params.id },
       include: { workspace: true },
     });
 
-    if (!cluster || cluster.workspace.ownerId !== req.userId) {
+    if (!cluster || cluster.workspace.ownerId !== userId) {
       return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
     }
 
     const userResources = await prisma.userResource.findMany({
-      where: { userId: req.userId },
+      where: { userId },
     });
 
     res.json(userResources);

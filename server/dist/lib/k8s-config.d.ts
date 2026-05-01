@@ -9,7 +9,20 @@ export interface K8sConfig {
 }
 declare class KubernetesConfigManager {
     private kc;
+    private cachedConfig;
     loadConfig(): Promise<K8sConfig>;
+    private loadProviderConfig;
+    private autoDetectProvider;
+    private testConnection;
+    private tryLoadDockerDesktop;
+    private tryLoadK3s;
+    private getK3sToken;
+    private tryLoadK3d;
+    private tryLoadMinikube;
+    private tryLoadKind;
+    private tryLoadMicroK8s;
+    private tryLoadKubeadm;
+    private applyTimeoutSettings;
     private expandPath;
     private loadKubeConfigFile;
     private loadMinikubeConfig;

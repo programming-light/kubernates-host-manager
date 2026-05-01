@@ -2,19 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthStore, useWorkspaceStore } from '@/store';
 import api from '@/lib/api';
 import { Workspace } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import Link from 'next/link';
-import { Plus, Folder, MoreVertical, Trash2, Edit, ArrowLeft, Loader2 } from 'lucide-react';
+import { Plus, Folder, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function WorkspacesPage() {
   const router = useRouter();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const { workspaces, setWorkspaces, removeWorkspace } = useWorkspaceStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,7 +37,7 @@ export default function WorkspacesPage() {
     
     try {
       await api.delete(`/workspaces/${id}`);
-      setWorkspaces(workspaces.filter(ws => ws.id !== id));
+      removeWorkspace(id);
       toast.success('Workspace deleted');
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete workspace');
@@ -87,43 +86,46 @@ export default function WorkspacesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {workspaces.map((workspace, index) => (
-            <Card 
-              key={workspace.id}
-              className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700">
-                      <Folder className="h-6 w-6 text-white" />
+            <Link key={workspace.id} href={`/dashboard/workspaces/${workspace.id}`}>
+              <Card 
+                className="group relative overflow-hidden border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 hover:shadow-lg hover:shadow-black/20 cursor-pointer"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700">
+                        <Folder className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-white">{workspace.name}</CardTitle>
+                        <CardDescription className="text-xs text-gray-500">/{workspace.slug}</CardDescription>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-white">{workspace.name}</CardTitle>
-                      <CardDescription className="text-xs text-gray-500">/{workspace.slug}</CardDescription>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      className="h-8 w-8 text-gray-400 hover:text-white"
-                      onClick={() => deleteWorkspace(workspace.id)}
+                      className="h-8 w-8 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        deleteWorkspace(workspace.id);
+                      }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-400">
-                  {workspace.description || 'No description'}
-                </p>
-                <p className="mt-3 text-xs text-gray-500">
-                  Created {new Date(workspace.createdAt).toLocaleDateString()}
-                </p>
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-gray-400">
+                    {workspace.description || 'No description'}
+                  </p>
+                  <p className="mt-3 text-xs text-gray-500">
+                    Created {new Date(workspace.createdAt).toLocaleDateString()}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

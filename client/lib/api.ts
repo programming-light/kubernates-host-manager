@@ -1,4 +1,5 @@
-const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_VERSION = 'v1';
+const baseURL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') + `/api/${API_VERSION}`;
 
 let accessToken: string | null = null;
 
@@ -39,6 +40,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   const response = await fetch(`${baseURL}${url}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (response.status === 401) {
@@ -49,6 +51,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
+          credentials: 'include',
         });
         
         if (refreshResponse.ok) {
@@ -59,6 +62,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
           const retryResponse = await fetch(`${baseURL}${url}`, {
             ...options,
             headers,
+            credentials: 'include',
           });
           return retryResponse;
         }

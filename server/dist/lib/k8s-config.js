@@ -2,98 +2,472 @@ import * as k8s from '@kubernetes/client-node';
 import * as fs from 'fs';
 import * as path from 'path';
 import log from './logger.js';
+const REQUEST_TIMEOUT = parseInt(process.env.K8S_REQUEST_TIMEOUT || '60000', 10);
+const CONNECT_TIMEOUT = parseInt(process.env.K8S_CONNECT_TIMEOUT || '30000', 10);
 class KubernetesConfigManager {
     kc = null;
+    cachedConfig = null;
     async loadConfig() {
-        const provider = (process.env.K8S_PROVIDER || 'minikube');
+        if (this.cachedConfig) {
+            return this.cachedConfig;
+        }
+        const explicitProvider = process.env.K8S_PROVIDER;
         this.kc = new k8s.KubeConfig();
-        try {
-            switch (provider) {
-                case 'minikube':
-                    this.loadMinikubeConfig();
-                    break;
-                case 'kind':
-                    this.loadKindConfig();
-                    break;
-                case 'k3s':
-                    this.loadK3sConfig();
-                    break;
-                case 'k3d':
-                    this.loadK3dConfig();
-                    break;
-                case 'docker-desktop':
-                    this.loadDockerDesktopConfig();
-                    break;
-                case 'microk8s':
-                    this.loadMicroK8sConfig();
-                    break;
-                case 'kubeadm':
-                    this.loadKubeadmConfig();
-                    break;
-                case 'rancher':
-                    this.loadRancherConfig();
-                    break;
-                case 'eks':
-                    this.loadEKSConfig();
-                    break;
-                case 'gke':
-                    this.loadGKEConfig();
-                    break;
-                case 'aks':
-                    this.loadAKSConfig();
-                    break;
-                case 'custom':
-                    this.loadCustomConfig();
-                    break;
-                default:
-                    this.loadMinikubeConfig();
+        let provider;
+        let configLoaded = false;
+        if (explicitProvider && explicitProvider !== 'auto') {
+            provider = explicitProvider;
+            log.info(`Using explicit provider: ${provider}`);
+            configLoaded = await this.loadProviderConfig(provider);
+        }
+        else {
+            log.info('Auto-detecting Kubernetes provider...');
+            const detected = await this.autoDetectProvider();
+            if (detected) {
+                provider = detected.provider;
+                configLoaded = detected.success;
+                log.info(`Detected provider: ${provider}, config loaded: ${configLoaded}`);
             }
+            else {
+                provider = 'custom';
+                configLoaded = false;
+                log.warn('No Kubernetes cluster detected');
+            }
+        }
+        if (configLoaded && this.kc) {
+            this.applyTimeoutSettings();
             const cluster = this.kc.getCurrentCluster();
-            return {
+            log.info(`Kubernetes config loaded for ${provider}: ${cluster?.server}`);
+            this.cachedConfig = {
                 provider,
                 kubeConfig: this.kc,
                 apiServer: cluster?.server || '',
                 namespace: process.env.DEFAULT_NAMESPACE || 'default',
                 connected: true,
             };
+            return this.cachedConfig;
+        }
+        this.cachedConfig = {
+            provider,
+            kubeConfig: this.kc,
+            apiServer: '',
+            namespace: 'default',
+            connected: false,
+        };
+        return this.cachedConfig;
+    }
+    async loadProviderConfig(provider) {
+        try {
+            switch (provider) {
+                case 'minikube':
+                    this.loadMinikubeConfig();
+                    return true;
+                case 'kind':
+                    this.loadKindConfig();
+                    return true;
+                case 'k3s':
+                    this.loadK3sConfig();
+                    return true;
+                case 'k3d':
+                    this.loadK3dConfig();
+                    return true;
+                case 'docker-desktop':
+                    this.loadDockerDesktopConfig();
+                    return true;
+                case 'microk8s':
+                    this.loadMicroK8sConfig();
+                    return true;
+                case 'kubeadm':
+                    this.loadKubeadmConfig();
+                    return true;
+                case 'rancher':
+                    this.loadRancherConfig();
+                    return true;
+                case 'eks':
+                    this.loadEKSConfig();
+                    return true;
+                case 'gke':
+                    this.loadGKEConfig();
+                    return true;
+                case 'aks':
+                    this.loadAKSConfig();
+                    return true;
+                case 'custom':
+                    this.loadCustomConfig();
+                    return true;
+                default:
+                    return false;
+            }
         }
         catch (error) {
             log.error(`Failed to load ${provider} config:`, error);
-            return {
-                provider,
-                kubeConfig: this.kc,
-                apiServer: '',
-                namespace: 'default',
-                connected: false,
-            };
+            return false;
         }
+    }
+    async autoDetectProvider() {
+        log.info('Starting auto-detection of Kubernetes provider');
+        // Try to find kubeconfig in common Windows locations
+        const home = process.env.USERPROFILE || process.env.HOME || '';
+        const windowsKubeConfigPaths = [
+            path.join(home, '.kube', 'config'),
+            path.join(home, '.kube', 'kubeconfig'),
+        ];
+        for (const kubeConfigPath of windowsKubeConfigPaths) {
+            try {
+                log.info(`Trying Windows kubeconfig path: ${kubeConfigPath}`);
+                if (fs.existsSync(kubeConfigPath)) {
+                    this.kc.loadFromFile(kubeConfigPath);
+                    const context = this.kc.getCurrentContext();
+                    const cluster = this.kc.getCurrentCluster();
+                    log.info(`Kubeconfig loaded from ${kubeConfigPath} - context: ${context}, server: ${cluster?.server}`);
+                    await this.testConnection();
+                    log.info('Connection test successful!');
+                    // Detect provider from context name
+                    let detectedProvider = 'custom';
+                    if (context) {
+                        if (context.includes('minikube'))
+                            detectedProvider = 'minikube';
+                        else if (context.includes('k3s') && !context.includes('k3d'))
+                            detectedProvider = 'k3s';
+                        else if (context.includes('k3d'))
+                            detectedProvider = 'k3d';
+                        else if (context.includes('kind'))
+                            detectedProvider = 'kind';
+                        else if (context.includes('docker-desktop') || context.includes('docker-for-desktop'))
+                            detectedProvider = 'docker-desktop';
+                        else if (context.includes('microk8s'))
+                            detectedProvider = 'microk8s';
+                    }
+                    return { provider: detectedProvider, success: true };
+                }
+            }
+            catch (error) {
+                log.debug(`Failed to load from ${kubeConfigPath}:`, error);
+            }
+            this.kc = new k8s.KubeConfig();
+        }
+        // Try minikube first on Windows - use exec to get kubeconfig
+        if (process.platform === 'win32') {
+            try {
+                log.info('Trying minikube on Windows...');
+                const { execSync } = require('child_process');
+                const kubeconfigStr = execSync('minikube config view --flatten --merge', { encoding: 'utf8', timeout: 10000 });
+                if (kubeconfigStr && kubeconfigStr.trim()) {
+                    this.kc.loadFromString(kubeconfigStr);
+                    const context = this.kc.getCurrentContext();
+                    const cluster = this.kc.getCurrentCluster();
+                    log.info(`Minikube kubeconfig loaded - context: ${context}, server: ${cluster?.server}`);
+                    await this.testConnection();
+                    log.info('Connection test successful!');
+                    return { provider: 'minikube', success: true };
+                }
+            }
+            catch (error) {
+                log.debug('Failed with minikube command:', error);
+                this.kc = new k8s.KubeConfig();
+            }
+        }
+        // First, try to load from default kubeconfig (works for most setups)
+        try {
+            log.info('Trying default kubeconfig...');
+            this.kc.loadFromDefault();
+            const context = this.kc.getCurrentContext();
+            const cluster = this.kc.getCurrentCluster();
+            log.info(`Default kubeconfig loaded - context: ${context}, server: ${cluster?.server}`);
+            await this.testConnection();
+            log.info('Connection test successful!');
+            // Detect provider from context name
+            let detectedProvider = 'custom';
+            if (context) {
+                if (context.includes('minikube'))
+                    detectedProvider = 'minikube';
+                else if (context.includes('k3s') && !context.includes('k3d'))
+                    detectedProvider = 'k3s';
+                else if (context.includes('k3d'))
+                    detectedProvider = 'k3d';
+                else if (context.includes('kind'))
+                    detectedProvider = 'kind';
+                else if (context.includes('docker-desktop') || context.includes('docker-for-desktop'))
+                    detectedProvider = 'docker-desktop';
+                else if (context.includes('microk8s'))
+                    detectedProvider = 'microk8s';
+            }
+            return { provider: detectedProvider, success: true };
+        }
+        catch (error) {
+            log.debug('Failed with default kubeconfig:', error);
+            this.kc = new k8s.KubeConfig();
+        }
+        // Try specific providers (minikube first for Windows)
+        try {
+            log.info('Trying minikube...');
+            if (this.tryLoadMinikube()) {
+                await this.testConnection();
+                return { provider: 'minikube', success: true };
+            }
+        }
+        catch (error) {
+            log.debug('Failed with default kubeconfig:', error);
+            this.kc = new k8s.KubeConfig();
+        }
+        // Try specific providers
+        const detectionMethods = [
+            { name: 'k3s', fn: () => this.tryLoadK3s() },
+            { name: 'k3d', fn: () => this.tryLoadK3d() },
+            { name: 'kind', fn: () => this.tryLoadKind() },
+            { name: 'docker-desktop', fn: () => this.tryLoadDockerDesktop() },
+            { name: 'microk8s', fn: () => this.tryLoadMicroK8s() },
+        ];
+        for (const method of detectionMethods) {
+            try {
+                log.info(`Trying to detect: ${method.name}`);
+                const success = method.fn();
+                if (success) {
+                    await this.testConnection();
+                    return { provider: method.name, success: true };
+                }
+            }
+            catch (error) {
+                log.debug(`Failed to load ${method.name}:`, error);
+            }
+            this.kc = new k8s.KubeConfig();
+        }
+        return null;
+    }
+    async testConnection() {
+        if (!this.kc)
+            throw new Error('No kubeconfig');
+        const user = this.kc.getCurrentUser();
+        const cluster = this.kc.getCurrentCluster();
+        log.info(`Testing connection - user: ${user?.name}, cluster: ${cluster?.server}, hasCert: ${!!user?.certData}, hasToken: ${!!user?.token}`);
+        if (!user) {
+            throw new Error('No user credentials in kubeconfig');
+        }
+        const coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
+        try {
+            await coreApi.listNamespace();
+        }
+        catch (err) {
+            log.error(`Connection test failed: ${err.message}`);
+            throw err;
+        }
+    }
+    tryLoadDockerDesktop() {
+        try {
+            const kubeConfigPath = process.env.DOCKER_DESKTOP_KUBECONFIG || '~/.kube/config';
+            const expandedPath = this.expandPath(kubeConfigPath);
+            if (fs.existsSync(expandedPath)) {
+                this.kc.loadFromFile(expandedPath);
+                return true;
+            }
+            this.kc.loadFromDefault();
+            const context = this.kc.getCurrentContext();
+            return context.includes('docker-desktop') || context.includes('docker-for-desktop');
+        }
+        catch {
+            return false;
+        }
+    }
+    tryLoadK3s() {
+        try {
+            const k3sUrl = process.env.K3S_URL || 'https://localhost:6443';
+            const k3sToken = process.env.K3S_TOKEN || this.getK3sToken();
+            const skipTls = process.env.K8S_SKIP_TLS_VERIFY === 'true';
+            if (k3sToken) {
+                this.kc.loadFromOptions({
+                    clusters: [{ name: 'k3s', server: k3sUrl, skipTLSVerify: skipTls }],
+                    users: [{ name: 'k3s-user', token: k3sToken }],
+                    contexts: [{ name: 'k3s', cluster: 'k3s', user: 'k3s-user' }],
+                    currentContext: 'k3s',
+                });
+                return true;
+            }
+            const kubeConfigPath = process.env.K3S_KUBECONFIG || '/etc/rancher/k3s/k3s.yaml';
+            if (fs.existsSync(kubeConfigPath)) {
+                this.kc.loadFromFile(kubeConfigPath);
+                return true;
+            }
+            this.kc.loadFromDefault();
+            const context = this.kc.getCurrentContext();
+            return context.includes('k3s');
+        }
+        catch {
+            return false;
+        }
+    }
+    getK3sToken() {
+        const tokenPaths = [
+            '/var/lib/rancher/k3s/server/agent-token',
+            '/var/lib/rancher/k3s/server/cluster-secret',
+        ];
+        for (const p of tokenPaths) {
+            if (fs.existsSync(p)) {
+                try {
+                    return fs.readFileSync(p, 'utf8').trim();
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+    tryLoadK3d() {
+        try {
+            const kubeConfigPath = process.env.K3D_KUBECONFIG || '~/.kube/config';
+            const expandedPath = this.expandPath(kubeConfigPath);
+            if (fs.existsSync(expandedPath)) {
+                this.kc.loadFromFile(expandedPath);
+                const context = this.kc.getCurrentContext();
+                return context.includes('k3d');
+            }
+            return false;
+        }
+        catch {
+            return false;
+        }
+    }
+    tryLoadMinikube() {
+        try {
+            const ip = process.env.MINIKUBE_IP;
+            const port = process.env.MINIKUBE_PORT;
+            const token = process.env.MINIKUBE_TOKEN;
+            const skipTls = process.env.K8S_SKIP_TLS_VERIFY === 'true';
+            if (token && ip) {
+                this.kc.loadFromOptions({
+                    clusters: [{ name: 'minikube', server: `https://${ip}:${port || '8443'}`, skipTLSVerify: skipTls }],
+                    users: [{ name: 'minikube-user', token }],
+                    contexts: [{ name: 'minikube', cluster: 'minikube', user: 'minikube-user' }],
+                    currentContext: 'minikube',
+                });
+                return true;
+            }
+            // Try Windows default location
+            const home = process.env.USERPROFILE || process.env.HOME || '';
+            const windowsPaths = [
+                'C:\\Users\\' + home + '\\.kube\\config',
+                'C:\\Program Files\\Minikube\\kubeconfig',
+                '~/.kube/config',
+            ];
+            for (const kubeConfigPath of windowsPaths) {
+                const expandedPath = this.expandPath(kubeConfigPath);
+                if (fs.existsSync(expandedPath)) {
+                    this.kc.loadFromFile(expandedPath);
+                    const context = this.kc.getCurrentContext();
+                    if (context?.includes('minikube')) {
+                        return true;
+                    }
+                }
+            }
+            // Try with explicit minikube kubeconfig
+            const minikubeKubeConfigPath = process.env.MINIKUBE_KUBECONFIG;
+            if (minikubeKubeConfigPath && fs.existsSync(minikubeKubeConfigPath)) {
+                this.kc.loadFromFile(minikubeKubeConfigPath);
+                this.kc.setCurrentContext('minikube');
+                return true;
+            }
+            // Try minikube profile if installed
+            try {
+                const { execSync } = require('child_process');
+                const kubeconfig = execSync('minikube kubeconfig', { encoding: 'utf8' });
+                if (kubeconfig) {
+                    this.kc.loadFromString(kubeconfig);
+                    return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+        catch {
+            return false;
+        }
+    }
+    tryLoadKind() {
+        try {
+            const kubeConfigPath = process.env.KIND_KUBECONFIG || '~/.kube/config';
+            const expandedPath = this.expandPath(kubeConfigPath);
+            if (fs.existsSync(expandedPath)) {
+                this.kc.loadFromFile(expandedPath);
+                const context = this.kc.getCurrentContext();
+                return context.includes('kind');
+            }
+            return false;
+        }
+        catch {
+            return false;
+        }
+    }
+    tryLoadMicroK8s() {
+        try {
+            const kubeConfigPath = process.env.MICROK8S_KUBECONFIG || '~/.kube/config';
+            const expandedPath = this.expandPath(kubeConfigPath);
+            if (fs.existsSync(expandedPath)) {
+                this.kc.loadFromFile(expandedPath);
+                const context = this.kc.getCurrentContext();
+                return context.includes('microk8s');
+            }
+            const microk8sConfig = path.join(process.env.HOME || process.env.USERPROFILE || '', '.kube', 'config');
+            if (fs.existsSync(microk8sConfig)) {
+                this.kc.loadFromFile(microk8sConfig);
+                return true;
+            }
+            return false;
+        }
+        catch {
+            return false;
+        }
+    }
+    tryLoadKubeadm() {
+        try {
+            const apiServer = process.env.KUBEADM_API_SERVER;
+            const token = process.env.KUBEADM_TOKEN;
+            if (apiServer && token) {
+                this.kc.loadFromOptions({
+                    clusters: [{ name: 'kubeadm', server: apiServer, skipTLSVerify: process.env.K8S_SKIP_TLS_VERIFY === 'true' }],
+                    users: [{ name: 'kubeadm-user', token }],
+                    contexts: [{ name: 'kubeadm', cluster: 'kubeadm', user: 'kubeadm-user' }],
+                    currentContext: 'kubeadm',
+                });
+                return true;
+            }
+            this.kc.loadFromDefault();
+            return true;
+        }
+        catch {
+            return false;
+        }
+    }
+    applyTimeoutSettings() {
+        // Timeout settings can be applied per-request if needed
     }
     expandPath(p) {
         if (p.startsWith('~')) {
-            return path.join(process.env.HOME || '', p.slice(1));
+            const home = process.env.HOME || process.env.USERPROFILE || '';
+            return path.join(home, p.slice(1));
         }
         return p;
     }
     loadKubeConfigFile(filePath) {
         const expandedPath = this.expandPath(filePath);
+        log.info(`Attempting to load kubeconfig from: ${expandedPath}`);
+        log.info(`File exists: ${fs.existsSync(expandedPath)}`);
         if (fs.existsSync(expandedPath)) {
             this.kc.loadFromFile(expandedPath);
         }
         else {
+            log.info('Kubeconfig file not found, trying loadFromDefault()');
             this.kc.loadFromDefault();
         }
     }
     loadMinikubeConfig() {
-        const ip = process.env.MINIKUBE_IP || '192.168.49.2';
-        const port = process.env.MINIKUBE_PORT || '8443';
+        const ip = process.env.MINIKUBE_IP;
+        const port = process.env.MINIKUBE_PORT;
         const token = process.env.MINIKUBE_TOKEN;
         const caCert = process.env.MINIKUBE_CA_CERT;
         const skipTls = process.env.K8S_SKIP_TLS_VERIFY === 'true';
-        if (token) {
+        if (token && ip) {
             this.kc.loadFromOptions({
                 clusters: [{
                         name: 'minikube',
-                        server: `https://${ip}:${port}`,
+                        server: `https://${ip}:${port || '8443'}`,
                         caData: caCert,
                         skipTLSVerify: skipTls,
                     }],
@@ -110,7 +484,10 @@ class KubernetesConfigManager {
             });
         }
         else {
-            this.loadKubeConfigFile('~/.kube/config');
+            const kubeConfigPath = process.env.MINIKUBE_KUBECONFIG || '~/.kube/config';
+            log.info(`Loading minikube config from: ${kubeConfigPath}`);
+            this.loadKubeConfigFile(kubeConfigPath);
+            this.kc.setCurrentContext('minikube');
         }
     }
     loadKindConfig() {
@@ -120,12 +497,6 @@ class KubernetesConfigManager {
         const expandedPath = this.expandPath(kubeConfigPath);
         if (fs.existsSync(expandedPath)) {
             this.kc.loadFromFile(expandedPath);
-            if (skipTls) {
-                const cluster = this.kc.getCurrentCluster();
-                if (cluster) {
-                    cluster.skipTLSVerify = true;
-                }
-            }
         }
         else {
             this.kc.loadFromOptions({
@@ -187,11 +558,6 @@ class KubernetesConfigManager {
         const expandedPath = this.expandPath(kubeConfigPath);
         if (fs.existsSync(expandedPath)) {
             this.kc.loadFromFile(expandedPath);
-            if (skipTls) {
-                const cluster = this.kc.getCurrentCluster();
-                if (cluster)
-                    cluster.skipTLSVerify = true;
-            }
         }
         else {
             this.kc.loadFromOptions({
@@ -219,15 +585,9 @@ class KubernetesConfigManager {
     }
     loadDockerDesktopConfig() {
         const kubeConfigPath = process.env.DOCKER_DESKTOP_KUBECONFIG || '~/.kube/config';
-        const skipTls = process.env.K8S_SKIP_TLS_VERIFY === 'true';
         const expandedPath = this.expandPath(kubeConfigPath);
         if (fs.existsSync(expandedPath)) {
             this.kc.loadFromFile(expandedPath);
-            if (skipTls) {
-                const cluster = this.kc.getCurrentCluster();
-                if (cluster)
-                    cluster.skipTLSVerify = true;
-            }
         }
         else {
             this.kc.loadFromDefault();
@@ -239,11 +599,6 @@ class KubernetesConfigManager {
         const expandedPath = this.expandPath(kubeConfigPath);
         if (fs.existsSync(expandedPath)) {
             this.kc.loadFromFile(expandedPath);
-            if (skipTls) {
-                const cluster = this.kc.getCurrentCluster();
-                if (cluster)
-                    cluster.skipTLSVerify = true;
-            }
         }
         else {
             this.kc.loadFromOptions({

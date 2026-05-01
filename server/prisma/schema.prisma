@@ -7,18 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  MANAGER
+  DEVELOPER
+  VIEWER
+  BILLING
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+  TRIALING
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+  id        String     @id @default(cuid())
+  email     String     @unique
   name      String
-  role      String   @default("developer")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  password  String?
+  role      UserRole   @default(DEVELOPER)
+  status    UserStatus @default(PENDING)
+  company   String?
+  avatar    String?
+  phone    String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   workspaces     Workspace[]
-  subscription   Subscription?
-  payments       Payment[]
-  userResources  UserResource[]
+  subscription  Subscription?
+  payments     Payment[]
+  userResources UserResource[]
 }
 
 model Workspace {
@@ -29,97 +57,116 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner      User        @relation(fields: [ownerId], references: [id])
-  clusters   Cluster[]
-  projects   Project[]
+  owner    User        @relation(fields: [ownerId], references: [id])
+  clusters Cluster[]
+  projects Project[]
 }
 
 model PricingPlan {
   id          String   @id @default(cuid())
   name        String
-  slug        String   @unique
+  slug       String   @unique
   description String?
-  price       Float
-  interval    String   @default("monthly")
-  isActive    Boolean  @default(true)
-  features    Json
-  limits      Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  price      Float
+  interval   String   @default("monthly")
+  isActive   Boolean  @default(true)
+  isFeatured Boolean  @default(false)
+  features   Json
+  limits    Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   subscriptions Subscription[]
 }
 
 model Subscription {
-  id          String    @id @default(cuid())
-  userId      String    @unique
-  planId      String
-  status      String    @default("active")
-  startDate   DateTime  @default(now())
-  endDate     DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String              @id @default(cuid())
+  userId        String              @unique
+  planId        String
+  status        SubscriptionStatus  @default(TRIALING)
+  startDate     DateTime            @default(now())
+  endDate       DateTime?
+  autoRenew    Boolean            @default(true)
+  cancelAtPeriodEnd Boolean         @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
-  user        User         @relation(fields: [userId], references: [id])
-  plan        PricingPlan  @relation(fields: [planId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+  plan          PricingPlan   @relation(fields: [planId], references: [id])
 }
 
 model Payment {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   amount        Float
-  currency      String   @default("USD")
+  currency      String    @default("USD")
   method        String
-  transactionId String?
-  status        String   @default("pending")
-  paymentUrl    String?
-  metadata      Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  transactionId String?   @unique
+  status        String    @default("pending")
+  paymentUrl   String?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id])
+  user          User       @relation(fields: [userId], references: [id])
 }
 
 model UserResource {
-  id          String   @id @default(cuid())
-  userId      String
-  resourceType String
-  allocated   Float
-  used        Float    @default(0)
-  unit        String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  resourceType  String
+  allocated    Float
+  used         Float    @default(0)
+  unit         String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id])
+  user          User       @relation(fields: [userId], references: [id])
 }
 
 model Cluster {
   id          String   @id @default(cuid())
-  workspaceId String
+  workspaceId  String
   name        String
   provider    String
   region      String
   status      String   @default("active")
   config      Json?
+  isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id])
   projects    Project[]
 }
 
 model Project {
-  id          String   @id @default(cuid())
-  workspaceId String
-  name        String
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name         String
   slug        String
   description String?
-  gitUrl      String?
-  status      String   @default("active")
-  clusterId   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  gitUrl     String?
+  status     String    @default("active")
+  clusterId  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
-  cluster     Cluster   @relation(fields: [clusterId], references: [id])
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id])
+  cluster     Cluster    @relation(fields: [clusterId], references: [id])
+  deployments Deployment[]
+}
+
+model Deployment {
+  id          String   @id @default(cuid())
+  projectId   String
+  environment String
+  version    String
+  status     String   @default("pending")
+  config     Json?
+  deployedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id])
 }

@@ -1,29 +1,31 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
-import { Cluster, Workspace } from '@/lib/types';
+import { Workspace } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Loader2, Boxes, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, Boxes, Cloud, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 export default function NewProjectPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const workspaceId = searchParams.get('workspace');
   const [loading, setLoading] = useState(false);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [k8sConnected, setK8sConnected] = useState(false);
+  const [k8sNamespaces, setK8sNamespaces] = useState<string[]>([]);
   const [formData, setFormData] = useState({
-    workspaceId: '',
-    clusterId: '',
+    workspaceId: workspaceId || '',
     name: '',
     description: '',
     gitUrl: '',
-    namespace: '',
+    namespace: 'default',
     replicas: 1,
   });
 
@@ -33,21 +35,21 @@ export default function NewProjectPage() {
 
   const fetchData = async () => {
     try {
-      const [clRes, wsRes] = await Promise.all([
-        api.get('/clusters'),
+      const [wsRes, k8sStatusRes, k8sNsRes] = await Promise.all([
         api.get('/workspaces'),
+        api.get('/kubernetes/status'),
+        api.get('/kubernetes/namespaces'),
       ]);
       
-      const clData = await clRes.json();
       const wsData = await wsRes.json();
+      const k8sStatusData = await k8sStatusRes.json();
+      const k8sNsData = await k8sNsRes.json();
       
-      setClusters(Array.isArray(clData) ? clData : []);
       setWorkspaces(Array.isArray(wsData) ? wsData : []);
+      setK8sConnected(k8sStatusData.connected || false);
+      setK8sNamespaces(Array.isArray(k8sNsData) ? k8sNsData.map((ns: any) => ns.name) : ['default']);
       
-      if (clData.length > 0) {
-        setFormData(prev => ({ ...prev, clusterId: clData[0].id }));
-      }
-      if (wsData.length > 0) {
+      if (wsData.length > 0 && !formData.workspaceId) {
         setFormData(prev => ({ ...prev, workspaceId: wsData[0].id }));
       }
     } catch (error: any) {
@@ -57,8 +59,8 @@ export default function NewProjectPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.clusterId) {
-      toast.error('Please select a cluster');
+    if (!formData.workspaceId) {
+      toast.error('Please select a workspace');
       return;
     }
     setLoading(true);
@@ -102,19 +104,24 @@ export default function NewProjectPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {clusters.length === 0 ? (
+          {!k8sConnected ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <AlertCircle className="mb-4 h-10 w-10 text-yellow-500" />
-              <h3 className="text-lg font-semibold text-white">No clusters available</h3>
-              <p className="mt-1 text-sm text-gray-400">Add a cluster first before creating a project</p>
-              <Link href="/dashboard/clusters/new">
+              <Cloud className="mb-4 h-10 w-10 text-yellow-500" />
+              <h3 className="text-lg font-semibold text-white">Kubernetes not connected</h3>
+              <p className="mt-1 text-sm text-gray-400">Start minikube or k3s to create projects</p>
+              <Link href="/dashboard/kubernetes">
                 <Button className="mt-4">
-                  Add Cluster First
+                  Go to Kubernetes
                 </Button>
               </Link>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-400" />
+                <span className="text-green-400 text-sm">Connected to Kubernetes</span>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="workspace" className="text-gray-300">Workspace</Label>
                 <select
@@ -126,22 +133,6 @@ export default function NewProjectPage() {
                   {workspaces.map((ws) => (
                     <option key={ws.id} value={ws.id} className="bg-gray-800">
                       {ws.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="cluster" className="text-gray-300">Cluster</Label>
-                <select
-                  id="cluster"
-                  value={formData.clusterId}
-                  onChange={(e) => setFormData({ ...formData, clusterId: e.target.value })}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {clusters.map((cluster) => (
-                    <option key={cluster.id} value={cluster.id} className="bg-gray-800">
-                      {cluster.name} ({cluster.provider})
                     </option>
                   ))}
                 </select>
@@ -183,14 +174,19 @@ export default function NewProjectPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="namespace" className="text-gray-300">Namespace</Label>
-                  <Input
+                  <Label htmlFor="namespace" className="text-gray-300">Kubernetes Namespace</Label>
+                  <select
                     id="namespace"
-                    placeholder="default"
                     value={formData.namespace}
                     onChange={(e) => setFormData({ ...formData, namespace: e.target.value })}
-                    className="border-gray-700 bg-gray-800 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500"
-                  />
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {k8sNamespaces.map((ns) => (
+                      <option key={ns} value={ns} className="bg-gray-800">
+                        {ns}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="replicas" className="text-gray-300">Replicas</Label>
@@ -217,7 +213,7 @@ export default function NewProjectPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={loading || !formData.name || !formData.clusterId}
+                  disabled={loading || !formData.name || !formData.workspaceId}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

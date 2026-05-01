@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
@@ -9,15 +10,7 @@ import log from './lib/logger.js';
 import prisma from './lib/prisma.js';
 import { initEmailService, isEmailConfigured } from './lib/email.js';
 
-import authRoutes from './routes/auth.js';
-import userRoutes from './routes/users.js';
-import workspaceRoutes from './routes/workspaces.js';
-import clusterRoutes from './routes/clusters.js';
-import projectRoutes from './routes/projects.js';
-import deploymentRoutes from './routes/deployments.js';
-import kubernetesRoutes from './routes/kubernetes.js';
-import planRoutes from './routes/plans.js';
-import paymentRoutes from './routes/payments.js';
+import routes from './routes/routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -40,6 +33,7 @@ async function main() {
     origin: process.env.CLIENT_URL || 'http://localhost:3000', 
     credentials: true 
   }));
+  app.use(cookieParser());
   app.use(express.json());
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -54,15 +48,7 @@ async function main() {
     },
   }));
 
-  app.use('/api/auth', authRoutes);
-  app.use('/api/auth', userRoutes);
-  app.use('/api/workspaces', workspaceRoutes);
-  app.use('/api/clusters', clusterRoutes);
-  app.use('/api/projects', projectRoutes);
-  app.use('/api/deployments', deploymentRoutes);
-  app.use('/api/kubernetes', kubernetesRoutes);
-  app.use('/api/plans', planRoutes);
-  app.use('/api/payments', paymentRoutes);
+  app.use('/api', routes);
 
   app.get('/', (req, res) => {
     res.json({
@@ -70,22 +56,14 @@ async function main() {
       version: '1.0.0',
       documentation: '/api-docs',
       endpoints: {
-        auth: '/api/auth',
-        users: '/api/auth/me',
-        workspaces: '/api/workspaces',
-        clusters: '/api/clusters',
-        projects: '/api/projects',
-        deployments: '/api/deployments',
-        kubernetes: '/api/kubernetes',
+        auth: '/api/v1/auth',
+        users: '/api/v1/auth/me',
+        workspaces: '/api/v1/workspaces',
+        clusters: '/api/v1/clusters',
+        projects: '/api/v1/projects',
+        deployments: '/api/v1/deployments',
+        kubernetes: '/api/v1/kubernetes',
       },
-    });
-  });
-
-  app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
     });
   });
 

@@ -2,32 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth-context';
+import { useAuthStore, useWorkspaceStore, useProjectStore, useDeploymentStore } from '@/store';
 import api from '@/lib/api';
-import { Workspace, Cluster, Project } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { 
   Folder, 
-  Server, 
   Boxes, 
   Rocket, 
   Plus,
   Activity,
   Clock,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  Cloud
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user } = useAuthStore();
+  const { workspaces, setWorkspaces } = useWorkspaceStore();
+  const { projects, setProjects } = useProjectStore();
+  const { deployments, setDeployments } = useDeploymentStore();
   const router = useRouter();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [k8sConnected, setK8sConnected] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -35,19 +35,22 @@ export default function DashboardPage() {
 
   const fetchDashboardData = async () => {
     try {
-      const [wsRes, clRes, prRes] = await Promise.all([
+      const [wsRes, prRes, depRes, k8sRes] = await Promise.all([
         api.get('/workspaces'),
-        api.get('/clusters'),
         api.get('/projects'),
+        api.get('/deployments'),
+        api.get('/kubernetes/status'),
       ]);
       
       const wsData = await wsRes.json();
-      const clData = await clRes.json();
       const prData = await prRes.json();
+      const depData = await depRes.json();
+      const k8sData = await k8sRes.json();
       
       setWorkspaces(Array.isArray(wsData) ? wsData : []);
-      setClusters(Array.isArray(clData) ? clData : []);
       setProjects(Array.isArray(prData) ? prData : []);
+      setDeployments(Array.isArray(depData) ? depData : []);
+      setK8sConnected(k8sData.connected || false);
     } catch (error: any) {
       toast.error(error.message || 'Failed to load dashboard data');
     } finally {
@@ -65,12 +68,12 @@ export default function DashboardPage() {
       textColor: 'text-blue-400'
     },
     { 
-      label: 'Clusters', 
-      value: clusters.length, 
-      icon: Server, 
-      color: 'from-purple-500 to-purple-600',
-      bgColor: 'bg-purple-500/10',
-      textColor: 'text-purple-400'
+      label: 'Kubernetes', 
+      value: k8sConnected ? 'Connected' : 'Disconnected', 
+      icon: Cloud, 
+      color: k8sConnected ? 'from-green-500 to-green-600' : 'from-red-500 to-red-600',
+      bgColor: k8sConnected ? 'bg-green-500/10' : 'bg-red-500/10',
+      textColor: k8sConnected ? 'text-green-400' : 'text-red-400'
     },
     { 
       label: 'Projects', 
@@ -82,7 +85,7 @@ export default function DashboardPage() {
     },
     { 
       label: 'Deployments', 
-      value: 0, 
+      value: deployments.length, 
       icon: Rocket, 
       color: 'from-orange-500 to-orange-600',
       bgColor: 'bg-orange-500/10',
@@ -92,7 +95,7 @@ export default function DashboardPage() {
 
   const quickActions = [
     { label: 'Create Workspace', href: '/dashboard/workspaces/new', icon: Folder },
-    { label: 'Add Cluster', href: '/dashboard/clusters/new', icon: Server },
+    { label: 'Go to Kubernetes', href: '/dashboard/kubernetes', icon: Cloud },
     { label: 'New Project', href: '/dashboard/projects/new', icon: Boxes },
   ];
 
@@ -173,7 +176,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {workspaces.length === 0 && clusters.length === 0 && projects.length === 0 ? (
+              {workspaces.length === 0 && projects.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <div className="mb-4 rounded-full bg-gray-800 p-4">
                     <Rocket className="h-8 w-8 text-gray-500" />
@@ -201,14 +204,14 @@ export default function DashboardPage() {
                       <Clock className="h-4 w-4 text-gray-500" />
                     </div>
                   ))}
-                  {clusters.slice(0, 2).map((cluster) => (
-                    <div key={cluster.id} className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10">
-                        <Server className="h-4 w-4 text-purple-400" />
+                  {projects.slice(0, 2).map((project) => (
+                    <div key={project.id} className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/10">
+                        <Boxes className="h-4 w-4 text-green-400" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-white">{cluster.name}</p>
-                        <p className="text-xs text-gray-500">Cluster connected</p>
+                        <p className="text-sm font-medium text-white">{project.name}</p>
+                        <p className="text-xs text-gray-500">Project created</p>
                       </div>
                       <Clock className="h-4 w-4 text-gray-500" />
                     </div>

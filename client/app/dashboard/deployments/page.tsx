@@ -1,30 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useAuthStore, useDeploymentStore, useProjectStore } from '@/store';
 import api from '@/lib/api';
-import { Project } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Rocket, Loader2, Play, Pause, RotateCcw, Clock, GitCommit, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, Rocket, Loader2, Clock, GitCommit, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-interface Deployment {
-  id: string;
-  projectId: string;
-  version: number;
-  status: string;
-  commitSha: string;
-  commitMessage: string;
-  deployedBy: string;
-  startedAt: string;
-  completedAt?: string;
-}
+import Link from 'next/link';
 
 export default function DeploymentsPage() {
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { deployments, setDeployments, addDeployment } = useDeploymentStore();
+  const { projects, setProjects } = useProjectStore();
   const [loading, setLoading] = useState(true);
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [deploying, setDeploying] = useState(false);
@@ -59,11 +49,11 @@ export default function DeploymentsPage() {
 
     try {
       const response = await api.post('/deployments', formData);
-      if (response.ok) {
-        toast.success('Deployment started');
-        setShowDeployModal(false);
-        fetchData();
-      }
+      const data = await response.json();
+      addDeployment(data);
+      toast.success('Deployment started');
+      setShowDeployModal(false);
+      setFormData({ projectId: '', imageUrl: '', replicas: 1 });
     } catch (error: any) {
       toast.error(error.message || 'Failed to start deployment');
     } finally {
@@ -75,7 +65,8 @@ export default function DeploymentsPage() {
     switch (status) {
       case 'running': return <CheckCircle className="h-4 w-4 text-green-400" />;
       case 'failed': return <XCircle className="h-4 w-4 text-red-400" />;
-      case 'deploying': return <Loader2 className="h-4 w-4 animate-spin text-blue-400" />;
+      case 'deploying':
+      case 'pending': return <Loader2 className="h-4 w-4 animate-spin text-blue-400" />;
       case 'queued': return <Clock className="h-4 w-4 text-yellow-400" />;
       default: return <AlertCircle className="h-4 w-4 text-gray-400" />;
     }
@@ -85,7 +76,8 @@ export default function DeploymentsPage() {
     switch (status) {
       case 'running': return 'bg-green-500/10 text-green-400 border-green-500/20';
       case 'failed': return 'bg-red-500/10 text-red-400 border-red-500/20';
-      case 'deploying': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      case 'deploying':
+      case 'pending': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
       case 'queued': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
       default: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
     }
@@ -135,47 +127,43 @@ export default function DeploymentsPage() {
       ) : (
         <div className="space-y-4">
           {deployments.map((deployment, index) => (
-            <Card 
-              key={deployment.id}
-              className="border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-orange-700">
-                    <Rocket className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-white">v{deployment.version}</h3>
-                      <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${getStatusColor(deployment.status)}`}>
-                        {getStatusIcon(deployment.status)}
-                        {deployment.status}
-                      </span>
+            <Link key={deployment.id} href={`/dashboard/deployments/${deployment.id}`}>
+              <Card 
+                className="border-gray-800 bg-gray-900/50 transition-all duration-300 hover:border-gray-700 cursor-pointer"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <CardContent className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-orange-700">
+                      <Rocket className="h-6 w-6 text-white" />
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <GitCommit className="h-3 w-3" />
-                        {deployment.commitSha?.slice(0, 7) || 'N/A'}
-                      </span>
-                      <span>{deployment.commitMessage || 'No message'}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-white">v{deployment.version}</h3>
+                        <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${getStatusColor(deployment.status)}`}>
+                          {getStatusIcon(deployment.status)}
+                          {deployment.status}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <GitCommit className="h-3 w-3" />
+                          {deployment.commitSha?.slice(0, 7) || 'N/A'}
+                        </span>
+                        <span>{deployment.commitMessage || 'No message'}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">
-                      {deployment.startedAt ? new Date(deployment.startedAt).toLocaleString() : 'Pending'}
-                    </p>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">
+                        {deployment.startedAt ? new Date(deployment.startedAt).toLocaleString() : 'Pending'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}
@@ -190,18 +178,21 @@ export default function DeploymentsPage() {
               <form onSubmit={handleDeploy} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="project" className="text-gray-300">Project</Label>
-                  <select
-                    id="project"
+                  <Select
                     value={formData.projectId}
-                    onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                    required
+                    onValueChange={(value) => setFormData({ ...formData, projectId: value })}
                   >
-                    <option value="">Select project</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-gray-800">{p.name}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="border-gray-700 bg-gray-800 text-white">
+                      <SelectValue placeholder="Select project" />
+                    </SelectTrigger>
+                    <SelectContent className="border-gray-800 bg-gray-900">
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={p.id} className="text-white hover:bg-gray-800">
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="image" className="text-gray-300">Image URL</Label>
