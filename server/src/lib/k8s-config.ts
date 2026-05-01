@@ -66,12 +66,22 @@ class KubernetesConfigManager {
       this.applyTimeoutSettings();
       const cluster = this.kc.getCurrentCluster();
       log.info(`Kubernetes config loaded for ${provider}: ${cluster?.server}`);
+
+      let isConnected = false;
+      try {
+        await this.testConnection();
+        isConnected = true;
+        log.info(`Kubernetes connection test passed for ${provider}`);
+      } catch (error: any) {
+        log.warn(`Kubernetes cluster not reachable for ${provider}: ${error.message}`);
+      }
+
       this.cachedConfig = {
         provider,
         kubeConfig: this.kc,
         apiServer: cluster?.server || '',
         namespace: process.env.DEFAULT_NAMESPACE || 'default',
-        connected: true,
+        connected: isConnected,
       };
       return this.cachedConfig;
     }
