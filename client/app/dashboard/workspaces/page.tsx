@@ -2,19 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, useWorkspaceStore } from '@/store';
+import { useWorkspaceStore } from '@/store';
 import api from '@/lib/api';
 import { Workspace } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import Link from 'next/link';
 import { Plus, Folder, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useAuth } from '@/lib/auth-context';
+
 export default function WorkspacesPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const { workspaces, setWorkspaces, removeWorkspace } = useWorkspaceStore();
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   useEffect(() => {
     fetchWorkspaces();
@@ -32,17 +37,18 @@ export default function WorkspacesPage() {
     }
   };
 
-  const deleteWorkspace = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this workspace?')) return;
-    
+  const confirmDeleteWorkspace = async () => {
+    if (!deleteTarget) return;
     try {
-      await api.delete(`/workspaces/${id}`);
-      removeWorkspace(id);
+      await api.delete(`/workspaces/${deleteTarget}`);
+      removeWorkspace(deleteTarget);
       toast.success('Workspace deleted');
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete workspace');
     }
   };
+
+  const deleteWorkspace = (id: string) => setDeleteTarget(id);
 
   if (loading) {
     return (
@@ -67,6 +73,13 @@ export default function WorkspacesPage() {
         </Link>
       </div>
 
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete Workspace"
+        message="Are you sure you want to delete this workspace?"
+        onConfirm={confirmDeleteWorkspace}
+      />
       {workspaces.length === 0 ? (
         <Card className="border-gray-800 bg-gray-900/50">
           <CardContent className="flex flex-col items-center justify-center py-16">
@@ -102,27 +115,36 @@ export default function WorkspacesPage() {
                         <CardDescription className="text-xs text-gray-500">/{workspace.slug}</CardDescription>
                       </div>
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        deleteWorkspace(workspace.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {workspace.ownerId === user?.id && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          deleteWorkspace(workspace.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-gray-400">
                     {workspace.description || 'No description'}
                   </p>
-                  <p className="mt-3 text-xs text-gray-500">
-                    Created {new Date(workspace.createdAt).toLocaleDateString()}
-                  </p>
+                  <div className="mt-3 flex items-center justify-between">
+                    <p className="text-xs text-gray-500">
+                      Created {new Date(workspace.createdAt).toLocaleDateString()}
+                    </p>
+                    {workspace._count?.members !== undefined && (
+                      <p className="text-xs text-gray-500">
+                        {workspace._count.members + 1} member{workspace._count.members + 1 !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </Link>

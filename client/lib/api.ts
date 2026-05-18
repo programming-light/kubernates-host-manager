@@ -1,23 +1,6 @@
 const API_VERSION = 'v1';
 const baseURL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') + `/api/${API_VERSION}`;
 
-let accessToken: string | null = null;
-
-export const setTokens = (access: string, refresh: string) => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
-    accessToken = access;
-  }
-};
-
-export const getAccessToken = () => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('accessToken');
-  }
-  return null;
-};
-
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -25,17 +8,31 @@ class ApiError extends Error {
   }
 }
 
+function getAccessToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('accessToken');
+}
+
+function setAccessToken(token: string | null) {
+  if (typeof window === 'undefined') return;
+  if (token) localStorage.setItem('accessToken', token);
+  else localStorage.removeItem('accessToken');
+}
+
+function setRefreshToken(token: string | null) {
+  if (typeof window === 'undefined') return;
+  if (token) localStorage.setItem('refreshToken', token);
+  else localStorage.removeItem('refreshToken');
+}
+
 const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null);
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...options.headers,
+  const method = options.method || 'GET';
+  const hasBody = method === 'POST' || method === 'PUT' || method === 'PATCH';
+  const token = getAccessToken();
+  const headers: Record<string, string> = {
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  
-  if (token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-  }
 
   const response = await fetch(`${baseURL}${url}`, {
     ...options,
@@ -43,41 +40,42 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     credentials: 'include',
   });
 
-  if (response.status === 401) {
-    const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
-    if (refreshToken) {
-      try {
-        const refreshResponse = await fetch(`${baseURL}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+  if (response.status === 401 && token) {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      const refreshResponse = await fetch(`${baseURL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = await refreshResponse.json();
+        setAccessToken(tokens.accessToken);
+        setRefreshToken(tokens.refreshToken);
+        headers['Authorization'] = `Bearer ${tokens.accessToken}`;
+        const retryResponse = await fetch(`${baseURL}${url}`, {
+          ...options,
+          headers,
           credentials: 'include',
         });
-        
-        if (refreshResponse.ok) {
-          const data = await refreshResponse.json();
-          setTokens(data.accessToken, data.refreshToken);
-          
-          (headers as Record<string, string>)['Authorization'] = `Bearer ${data.accessToken}`;
-          const retryResponse = await fetch(`${baseURL}${url}`, {
-            ...options,
-            headers,
-            credentials: 'include',
-          });
-          return retryResponse;
-        }
-      } catch {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          window.location.href = '/login';
-        }
+        return retryResponse;
+      } else {
+        setAccessToken(null);
+        setRefreshToken(null);
       }
+    } catch (err) {
+      console.error('[api] refresh token failed:', err);
+      setAccessToken(null);
+      setRefreshToken(null);
     }
   }
 
   return response;
 };
+
+export { setAccessToken, setRefreshToken, getAccessToken };
 
 const api = {
   get: async (url: string) => {

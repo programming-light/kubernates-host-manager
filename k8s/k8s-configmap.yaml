@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-platform-config
+  namespace: k8s-platform
+data:
+  NODE_ENV: "production"
+  PORT: "3001"
+  CLIENT_URL: "http://localhost:3000"
+  K8S_PROVIDER: "in-cluster"
+  DEFAULT_NAMESPACE: "k8s-platform"
+  # Kubernetes provider specific settings
+  K8S_REQUEST_TIMEOUT: "60000"
+  K8S_CONNECT_TIMEOUT: "30000"
+  # CORS settings
+  CORS_ORIGIN: "http://localhost:3000"
+  # Swagger settings
+  SWAGGER_ENABLED: "true"
+  # Logging
+  LOG_LEVEL: "info"
+  # Cookie settings
+  COOKIE_SECURE: "false"  # Set to "true" in production with HTTPS
+  # Rate limiting (optional)
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "100"

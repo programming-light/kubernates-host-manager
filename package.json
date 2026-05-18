@@ -2,11 +2,13 @@
   "name": "k8s-platform",
   "version": "1.0.0",
   "private": true,
+  "homepage": "https://k8s-host-manager.vercel.app",
   "scripts": {
     "dev:client": "npm run dev --prefix client",
+    "dev:p": "npm run dev --prefix public-client",
     "dev:server": "npm run dev --prefix server",
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-    "install:all": "npm install && npm install --prefix client && npm install --prefix server",
+    "install:all": "cd client && npm i && cd .. && cd server && npm i",
     "build:client": "npm run build --prefix client",
     "build:server": "npm run build --prefix server"
   },

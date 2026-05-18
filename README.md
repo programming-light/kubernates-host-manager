@@ -1,118 +1,184 @@
-# K8s Hosting Platform
+# Kubernetes Host Manager
 
-A modern multi-tenant Kubernetes hosting platform.
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=for-the-badge&logo=vercel)](https://k8s-host-manager.vercel.app)
 
-## Tech Stack
+A modern platform for hosting containerized applications on Kubernetes with CI/CD integration, real-time monitoring, and team collaboration.
 
-- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
-- **Backend**: Express.js, TypeScript, with Swagger documentation
-- **Database**: PostgreSQL with Prisma ORM (optional)
+## Architecture Overview
 
-## Quick Start
+```
+kubernates-host-manager/
+├── server/              # Backend API (Express + Prisma + Socket.IO)
+│   └── src/
+│       ├── controllers/ # Separated controllers (auth, projects, etc.)
+│       ├── models/      # Type definitions and schemas
+│       ├── routes/      # API routes
+│       ├── lib/         # Utilities (k8s-deploy, socket, etc.)
+│       └── index.ts     # Optimized server entry point
+│
+├── client/             # Protected Dashboard (Next.js)
+│   └── app/
+│       ├── dashboard/   # Protected routes (Auth required)
+│       ├── auth/        # Public auth pages (login, register)
+│       └── components/  # Reusable UI components
+│
+├── public-client/       # Public Pages (Next.js with ISR/SSG)
+│   └── app/
+│       ├── page.tsx     # Home page (revalidates every 1hr)
+│       ├── pricing/     # Pricing page (revalidates every 1hr)
+│       ├── services/    # Services page (revalidates every 24hrs)
+│       ├── products/    # Products page (revalidates every 24hrs)
+│       └── contact/     # Contact page (revalidates every 24hrs)
+│
+└── k8s/               # Kubernetes deployment configs
+```
 
-### 1. Install Dependencies
+## Key Features
 
+### 1. **Separated Controllers & Models**
+- All routes use dedicated controllers for better separation of concerns
+- Type definitions in `server/src/models/`
+- Controllers: `auth`, `projects`, `workspaces`, `users`, `clusters`, `kubernetes`, `cicd`, `payments`, `plans`
+
+### 2. **Kubernetes-Native Env Vars**
+- Environment variables stored in K8s ConfigMaps (non-secret) and Secrets (secret)
+- No env vars in database - uses labels like `app-{slug}` for projects
+- `k8sDeployManager.getEnvVarsFromK8s()` / `setEnvVarsToK8s()` in `server/src/lib/k8s-deploy.ts`
+
+### 3. **Public-Client with ISR/SSG**
+- Separate Next.js app for public pages (`public-client/`)
+- Pages are statically generated at build time
+- Incremental Static Regeneration (ISR) for periodic revalidation
+- No server calls on every request - pages are cached as static HTML
+- Revalidation times:
+  - Home: 1 hour
+  - Pricing: 1 hour
+  - Services/Products/Contact: 24 hours
+
+### 4. **Frontend Optimization**
+- Lazy loading with `React.lazy()` + `Suspense`
+- Separated components in `client/components/`:
+  - `dashboard/` - StatCards, QuickActions, RecentWorkspaces, RecentProjects
+  - `kubernetes/` - PodsList, ServicesList, DeploymentsList, etc.
+  - `projects/`, `clusters/`, `deployments/` - Reusable card components
+
+### 5. **Public vs Protected Routes**
+- **Public pages** (public-client): Home, Pricing, Services, Products, Contact
+- **Auth pages** (client): Login, Register
+- **Protected pages** (client): Dashboard, Projects, Deployments, Kubernetes, etc.
+- Dashboard layout wraps with `AuthProvider` + `SocketProvider`
+
+## Getting Started
+
+### Prerequisites
+- Node.js 20+
+- PostgreSQL
+- Docker (for Kubernetes integration)
+- Kubernetes cluster (for production)
+
+### Installation
+
+1. **Install dependencies:**
 ```bash
-npm install
+# Server
+cd server && npm install
+
+# Protected client (dashboard)
 cd client && npm install
-cd ../server && npm install
+
+# Public client (static pages)
+cd public-client && npm install
 ```
 
-### 2. Configure Environment
+2. **Set up environment variables:**
 
-```bash
-# Copy environment files
-cp .env.example server/.env
-
-# Edit server/.env with your Kubernetes provider settings
+Create `.env` in `server/`:
+```
+DATABASE_URL="postgresql://postgres:postgres123@localhost:5432/k8s_platform?schema=public"
+JWT_SECRET="your-super-secret-jwt-key"
+PORT=3001
 ```
 
-### 3. Start Services
-
+3. **Run database migrations:**
 ```bash
-# Start backend (with Swagger docs)
 cd server
-npm run dev
-
-# In another terminal, start frontend
-cd client
-npm run dev
+npx prisma migrate dev
+npx prisma generate
 ```
 
-### 4. Access Application
+4. **Start development servers:**
 
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:3001
-- **API Documentation**: http://localhost:3001/api-docs
+```bash
+# Terminal 1: Server (API)
+cd server && npm run dev
 
-## Project Structure
+# Terminal 2: Protected client (Dashboard)
+cd client && npm run dev  # Runs on :3000
 
+# Terminal 3: Public client (Static pages)
+cd public-client && npm run dev  # Runs on :3002
 ```
-k8s-platform/
-├── client/                    # Next.js Frontend
-│   ├── app/                  # Pages
-│   ├── components/           # UI Components
-│   └── lib/                  # API Client & Utils
-├── server/                   # Express.js Backend
-│   ├── src/
-│   │   ├── config/          # Swagger configuration
-│   │   ├── middleware/      # Auth, error, validation
-│   │   ├── routes/          # API routes
-│   │   └── lib/             # K8s config manager
-│   └── README.md            # API Documentation
-├── docker-compose.yml
-└── .env.example
+
+## Deployment
+
+### Using Docker Compose:
+```bash
+docker-compose up -d
+```
+
+This starts:
+- PostgreSQL on port 5432
+- Server (API) on port 3001
+- Protected client (Dashboard) on port 3000
+- Public client (Static pages) on port 3002
+
+### Kubernetes Deployment:
+```bash
+kubectl apply -f k8s/postgres-deployment.yaml
+kubectl apply -f k8s/server-deployment.yaml
+kubectl apply -f k8s/app-secrets.yaml
+kubectl apply -f k8s/k8s-configmap.yaml
+```
+
+## Environment Variables Handling
+
+**Important**: Env vars are NO LONGER stored in the database. They are now stored in Kubernetes:
+
+- **ConfigMaps** (non-secret): `kubectl get configmap app-{slug}-config -n {namespace}`
+- **Secrets** (secret): `kubectl get secret app-{slug}-secret -n {namespace}`
+
+To set env vars for a project:
+```typescript
+await k8sDeployManager.setEnvVarsToK8s(namespace, 'app-{slug}', envVars);
+```
+
+To get env vars:
+```typescript
+const envVars = await k8sDeployManager.getEnvVarsFromK8s(namespace, 'app-{slug}');
 ```
 
 ## API Endpoints
 
-| Category | Endpoint | Description |
-|----------|----------|-------------|
-| Auth | `/api/auth/*` | Register, login, refresh token |
-| Users | `/api/auth/me` | User profile |
-| Workspaces | `/api/workspaces/*` | Workspace management |
-| Clusters | `/api/clusters/*` | Kubernetes clusters |
-| Projects | `/api/projects/*` | Project management |
-| Deployments | `/api/deployments/*` | Deployment management |
-| Kubernetes | `/api/kubernetes/*` | K8s cluster operations |
+### Auth
+- `POST /api/v1/auth/register` - Register new user
+- `POST /api/v1/auth/login` - Login user
+- `GET /api/v1/auth/me` - Get current user
 
-## Kubernetes Providers
+### Projects
+- `GET /api/v1/projects` - List projects
+- `POST /api/v1/projects` - Create project
+- `GET /api/v1/projects/:id` - Get project details
+- `PUT /api/v1/projects/:id` - Update project
+- `DELETE /api/v1/projects/:id` - Delete project
 
-The backend supports multiple Kubernetes distributions:
+### Kubernetes
+- `GET /api/v1/kubernetes/status` - Get cluster status
+- `GET /api/v1/kubernetes/pods` - List pods
+- `GET /api/v1/kubernetes/services` - List services
+- `POST /api/v1/kubernetes/create-deployment` - Create deployment
+- `POST /api/v1/kubernetes/create-service` - Create service
+- `DELETE /api/v1/kubernetes/delete-resource` - Delete resource
 
-| Provider | Provider Value |
-|----------|----------------|
-| Minikube | `minikube` |
-| Kind | `kind` |
-| K3S | `k3s` |
-| K3D | `k3d` |
-| Docker Desktop | `docker-desktop` |
-| MicroK8S | `microk8s` |
-| Kubeadm (Bare Metal) | `kubeadm` |
-| Rancher | `rancher` |
-| AWS EKS | `eks` |
-| Google GKE | `gke` |
-| Azure AKS | `aks` |
-| Custom | `custom` |
+## License
 
-Set `K8S_PROVIDER` in `.env` to configure your cluster.
-
-## Environment Variables
-
-See `.env.example` for all configuration options.
-
-### Key Variables:
-
-```env
-# Server
-PORT=3001
-CLIENT_URL=http://localhost:3000
-
-# Authentication
-JWT_SECRET=your-secret
-REFRESH_SECRET=your-refresh-secret
-
-# Kubernetes
-K8S_PROVIDER=minikube
-DEFAULT_NAMESPACE=default
-```
+MIT

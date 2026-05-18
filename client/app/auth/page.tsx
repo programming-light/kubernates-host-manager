@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import api from '@/lib/api';
-import { useAuthStore } from '@/store';
+export const dynamic = 'force-dynamic';
+
+import { useState, useEffect, useCallback, useTransition, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { verifyOTP } from '@/app/actions';
+import { useSendOTP, useCompleteProfile } from '@/lib/queries/auth';
+import { useAuth } from '@/lib/auth-context';
+import { setAccessToken, setRefreshToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,29 +15,35 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { Mail, ArrowRight, Loader2, Shield, Copy, CheckCircle, AlertCircle } from 'lucide-react';
 
+function AuthPageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-950">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+    </div>
+  );
+}
+
 type AuthStep = 'email' | 'otp' | 'profile';
 
-interface AuthResponse {
+interface OTPResponse {
   requiresOTP?: boolean;
   emailSent?: boolean;
   devMode?: boolean;
   otp?: string;
-  isNewUser?: boolean;
-  message?: string;
 }
 
-export default function AuthPage() {
+function AuthContent() {
   const [step, setStep] = useState<AuthStep>('email');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('');
-  const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [isDevMode, setIsDevMode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const router = useRouter();
-  const { setUser } = useAuthStore();
+  const searchParams = useSearchParams();
+  const { refreshUser } = useAuth();
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -43,40 +53,34 @@ export default function AuthPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
+  const sendOTPMutation = useSendOTP();
+
   const handleSendOTP = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!email) {
       toast.error('Please enter your email');
       return;
     }
-    
-    setLoading(true);
-    try {
-      const response = await api.post('/auth', { email });
-      const data: AuthResponse = await response.json();
-      
-      if (data.requiresOTP) {
+
+    sendOTPMutation.mutate(email, {
+      onSuccess: (data) => {
         setStep('otp');
         setCountdown(60);
         setGeneratedOtp(data.otp || '');
-        setIsDevMode(data.devMode || false);
-        
+
         if (data.emailSent) {
           toast.success('OTP sent to your email!');
         } else if (data.devMode && data.otp) {
-          toast.success(`OTP: ${data.otp}`, {
-            duration: 10000,
-          });
+          toast.success(`OTP: ${data.otp}`, { duration: 10000 });
         } else {
           toast.success('OTP generated (check server console)');
         }
-      }
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  }, [email]);
+      },
+      onError: (error: any) => {
+        toast.error(error.message || 'Failed to send OTP');
+      },
+    });
+  }, [email, sendOTPMutation]);
 
   const handleVerifyOTP = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,35 +88,36 @@ export default function AuthPage() {
       toast.error('Please enter a 6-digit OTP');
       return;
     }
-    
-    setLoading(true);
-    try {
-      const response = await api.post('/auth/otp/verify', { email, otp });
-      const data = await response.json();
 
-      if (data.accessToken && data.refreshToken) {
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
+    const redirect = searchParams?.get('redirect') || '/dashboard';
 
-        if (data.isComplete) {
-          const userResponse = await api.get('/auth/me');
-          if (userResponse.ok) {
-            const user = await userResponse.json();
-            setUser(user);
-          }
-          toast.success('Welcome back!');
-          router.push('/dashboard');
-        } else {
-          setStep('profile');
-        }
+    startTransition(async () => {
+      const result = await verifyOTP(email, otp, redirect);
+
+      if (result.error) {
+        toast.error(result.error);
         return;
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Invalid or expired OTP');
-    } finally {
-      setLoading(false);
-    }
-  }, [email, otp, router, setUser]);
+
+      if (result.accessToken) {
+        setAccessToken(result.accessToken);
+        setRefreshToken(result.refreshToken);
+      }
+
+      if (result.requiresProfile) {
+        setStep('profile');
+        return;
+      }
+
+      if (result.success) {
+        await refreshUser();
+        toast.success('Welcome back!');
+        router.push(result.redirectTo || '/dashboard');
+      }
+    });
+  }, [email, otp, searchParams, refreshUser, router]);
+
+  const completeProfileMutation = useCompleteProfile();
 
   const handleCompleteProfile = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,25 +125,24 @@ export default function AuthPage() {
       toast.error('Please enter your name');
       return;
     }
-    
-    setLoading(true);
-    try {
-      const response = await api.post('/auth/complete-profile', { name });
-      if (response.ok) {
-        const userResponse = await api.get('/auth/me');
-        if (userResponse.ok) {
-          const user = await userResponse.json();
-          setUser(user);
+
+    const redirect = searchParams?.get('redirect') || '/dashboard';
+
+    completeProfileMutation.mutate({ name: name.trim(), email }, {
+      onSuccess: async (data) => {
+        if (data.accessToken) {
+          setAccessToken(data.accessToken);
+          setRefreshToken(data.refreshToken);
         }
+        await refreshUser();
         toast.success('Profile completed!');
-        router.push('/dashboard');
-      }
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to complete profile');
-    } finally {
-      setLoading(false);
-    }
-  }, [name, router, setUser]);
+        router.push(data.redirectTo || redirect);
+      },
+      onError: (error: any) => {
+        toast.error(error.message || 'Failed to complete profile');
+      },
+    });
+  }, [name, email, searchParams, refreshUser, router, completeProfileMutation]);
 
   const handleResendOTP = useCallback(async () => {
     if (countdown > 0) return;
@@ -224,8 +228,8 @@ export default function AuthPage() {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={loading}>
-                  {loading ? (
+                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isPending}>
+                  {isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <>
@@ -239,7 +243,7 @@ export default function AuthPage() {
 
             {step === 'otp' && (
               <div className="space-y-4">
-                {isDevMode && generatedOtp && (
+                {generatedOtp && (
                   <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
                     <div className="mb-2 flex items-center gap-2 text-blue-400">
                       <AlertCircle className="h-4 w-4" />
@@ -277,8 +281,8 @@ export default function AuthPage() {
                       className="border-gray-700 bg-gray-800 text-center text-2xl tracking-widest font-mono text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
-                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={loading || otp.length !== 6}>
-                    {loading ? (
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isPending || otp.length !== 6}>
+                    {isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       'Verify'
@@ -319,8 +323,8 @@ export default function AuthPage() {
                     className="border-gray-700 bg-gray-800 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </div>
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={loading || !name.trim()}>
-                  {loading ? (
+                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isPending || !name.trim()}>
+                  {isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     'Complete Profile'
@@ -343,5 +347,13 @@ export default function AuthPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<AuthPageFallback />}>
+      <AuthContent />
+    </Suspense>
   );
 }

@@ -1,55 +1,74 @@
-version: '3.9'
+version: '3.8'
 
 services:
+  # PostgreSQL database
   postgres:
     image: postgres:16-alpine
     container_name: k8s-platform-postgres
     environment:
-      POSTGRES_USER: devuser
-      POSTGRES_PASSWORD: devpassword
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
       POSTGRES_DB: k8s_platform
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devuser -d k8s_platform"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - k8s-platform
 
-  redis:
-    image: redis:7-alpine
-    container_name: k8s-platform-redis
+  # Main server (API + protected dashboard)
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: k8s-platform-server
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - k8s-platform
-
-  adminer:
-    image: adminer:latest
-    container_name: k8s-platform-adminer
-    ports:
-      - "8080:8080"
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/k8s_platform?schema=public
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      NODE_ENV: production
+      PORT: 3001
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - k8s-platform
+    volumes:
+      - ./server:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  # Protected dashboard (client)
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: k8s-platform-client
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+      NODE_ENV: production
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # Public pages (static, SSG/ISR)
+  public-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.public-client
+    container_name: k8s-platform-public
+    ports:
+      - "3002:3002"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+      NODE_ENV: production
+    depends_on:
+      - server
+    restart: unless-stopped
 
 volumes:
   postgres_data:
-  redis_data:
-
-networks:
-  k8s-platform:
-    driver: bridge

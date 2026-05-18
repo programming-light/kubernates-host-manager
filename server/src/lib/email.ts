@@ -20,6 +20,23 @@ interface SendEmailOptions {
 
 let transporter: nodemailer.Transporter | null = null;
 
+async function createDevTransporter(): Promise<nodemailer.Transporter | null> {
+  try {
+    const testAccount = await nodemailer.createTestAccount();
+    const transport = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: { user: testAccount.user, pass: testAccount.pass },
+    });
+    log.info(`Ethereal email ready. View at https://ethereal.email/login (${testAccount.user})`);
+    return transport;
+  } catch {
+    log.warn('SMTP not configured. OTPs will be logged to console.');
+    return null;
+  }
+}
+
 function createTransporter(): nodemailer.Transporter | null {
   const smtpHost = process.env.SMTP_HOST;
   const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
@@ -27,7 +44,7 @@ function createTransporter(): nodemailer.Transporter | null {
   const smtpPass = process.env.SMTP_PASS;
 
   if (!smtpHost || !smtpUser || !smtpPass) {
-    log.warn('SMTP not configured. Email sending disabled.');
+    log.info('SMTP not configured. Email sending disabled.');
     return null;
   }
 
@@ -46,8 +63,14 @@ function createTransporter(): nodemailer.Transporter | null {
   return nodemailer.createTransport(config);
 }
 
-export function initEmailService(): void {
+export async function initEmailService(): Promise<void> {
   transporter = createTransporter();
+  if (!transporter && process.env.NODE_ENV === 'development') {
+    transporter = await createDevTransporter();
+    if (transporter) {
+      log.info('Using Ethereal test email service for development.');
+    }
+  }
 }
 
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
@@ -132,9 +155,5 @@ export async function sendOTPEmail(to: string, otp: string): Promise<boolean> {
 }
 
 export function isEmailConfigured(): boolean {
-  return !!(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS
-  );
+  return !!transporter;
 }

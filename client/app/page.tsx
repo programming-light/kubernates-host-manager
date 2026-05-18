@@ -1,24 +1,11 @@
-import type { Metadata, Viewport } from 'next';
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Server, Shield, Zap, Globe, Container, GitBranch } from 'lucide-react';
-
-export const dynamic = 'force-static';
-
-export const metadata: Metadata = {
-  title: 'K8s Platform - Deploy Your Apps on Kubernetes',
-  description: 'A modern platform for hosting containerized applications. Deploy from Git, scale automatically, and manage with ease.',
-  keywords: ['kubernetes', 'container', 'deployment', 'hosting', 'cloud'],
-  openGraph: {
-    title: 'K8s Platform',
-    description: 'Deploy your apps on Kubernetes',
-    type: 'website',
-  },
-};
-
-export const viewport: Viewport = {
-  themeColor: '#020617',
-};
 
 const features = [
   { icon: Container, title: 'Container Orchestration', description: 'Deploy and manage containers at scale with Kubernetes' },
@@ -30,6 +17,19 @@ const features = [
 ];
 
 export default function Home() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/dashboard');
+    }
+  }, [loading, user, router]);
+
+  if (loading) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gray-950">
       <nav className="border-b border-gray-800 bg-gray-900/50 backdrop-blur-xl">

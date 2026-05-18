@@ -2,81 +2,109 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuthStore } from '@/store';
+import { useAuth } from '@/lib/auth-context';
+import { SocketProvider } from '@/lib/socket-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { 
-  LayoutDashboard, 
-  Folder, 
-  Server, 
-  Rocket, 
+import {
+  LayoutDashboard,
+  Server,
+  Rocket,
   Settings,
   LogOut,
   Menu,
   X,
   Boxes,
-  Cloud,
   CreditCard,
   ChevronLeft,
-  DollarSign
+  DollarSign,
+  FolderIcon,
+  Database
 } from 'lucide-react';
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
+import { canAccessPage } from '@/lib/workspace-permissions';
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/dashboard/workspaces', label: 'Workspaces', icon: Folder },
-  { href: '/dashboard/projects', label: 'Projects', icon: Boxes },
-  { href: '/dashboard/deployments', label: 'Deployments', icon: Rocket },
-  { href: '/dashboard/kubernetes', label: 'Kubernetes', icon: Cloud },
-  { href: '/dashboard/pricing', label: 'Pricing', icon: DollarSign },
-  { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
-  { href: '/dashboard/settings', label: 'Settings', icon: Settings },
+const allNavItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workspace:read' },
+  { href: '/dashboard/workspaces', label: 'Workspaces', icon:   FolderIcon, permission: 'workspace:read' },
+  { href: '/dashboard/projects', label: 'Projects', icon: Boxes, permission: 'projects:read' },
+  { href: '/dashboard/deployments', label: 'Deployments', icon: Rocket, permission: 'deployments:read' },
+  { href: '/dashboard/kubernetes', label: 'Kubernetes', icon: Server, permission: 'clusters:read' },
+  { href: '/dashboard/databases', label: 'Databases', icon: Database, permission: 'projects:read' },
+  { href: '/dashboard/pricing', label: 'Pricing', icon: DollarSign, permission: 'workspace:read' },
+  { href: '/dashboard/billing', label: 'Billing', icon: CreditCard, permission: 'billing:read' },
+  { href: '/dashboard/settings', label: 'Settings', icon: Settings, permission: 'settings:read' },
 ];
 
-function DashboardContent({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading, initialized, logout, initAuth } = useAuthStore();
+  const { user, loading: authLoading, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [userRole, setUserRole] = useState<string>('DEVELOPER');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
-    initAuth();
-  }, [initAuth]);
-
-  useEffect(() => {
-    if (!initialized) return;
-    if (!loading && !user && mounted && !pathname?.startsWith('/auth')) {
-      router.push('/auth');
+    if (!authLoading && !user) {
+      router.push('/auth?redirect=/dashboard');
     }
-  }, [initialized, loading, user, mounted, pathname, router]);
+  }, [user, authLoading, router]);
 
-  if (!mounted || loading) {
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchUserRole = async () => {
+      try {
+        const workspacesRes = await fetch('/api/v1/workspaces', {
+          credentials: 'include',
+        });
+
+        if (workspacesRes.ok) {
+          const workspaces = await workspacesRes.json();
+          if (workspaces.length > 0) {
+            setUserRole(workspaces[0].memberRole || 'DEVELOPER');
+          } else {
+            setUserRole('OWNER');
+          }
+        }
+      } catch (err) {
+        console.warn('[DashboardLayout] fetchUserRole failed, falling back to DEVELOPER:', err);
+        setUserRole('DEVELOPER');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
+
+  useEffect(() => {
+    if (loading || !user) return;
+
+    const navItem = allNavItems.find((item) => item.href === pathname || pathname?.startsWith(item.href + '/'));
+    if (navItem && !canAccessPage(userRole, navItem.permission)) {
+      router.push('/dashboard');
+    }
+  }, [pathname, userRole, loading, router]);
+
+  if (authLoading || (!user && loading)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-          <p className="text-gray-400">Loading...</p>
-        </div>
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
       </div>
     );
   }
 
   if (!user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-gray-400">Redirecting to login...</p>
-        </div>
-      </div>
-    );
+    return null;
   }
+
+  const navItems = allNavItems.filter((item) => canAccessPage(userRole, item.permission));
 
   return (
     <div className="flex min-h-screen bg-gray-950">
@@ -106,7 +134,7 @@ function DashboardContent({
             onClick={() => setCollapsed(!collapsed)}
             className="hidden lg:block"
           >
-            <ChevronLeft className="h-5 w-5 text-gray-400 hover:text-white" />
+            <ChevronLeft className={cn("h-5 w-5 text-gray-400 hover:text-white transition-transform", collapsed && "rotate-180")} />
           </button>
         </div>
 
@@ -150,6 +178,7 @@ function DashboardContent({
                   {user.name || 'User'}
                 </p>
                 <p className="truncate text-xs text-gray-500">{user.email}</p>
+                <p className="truncate text-xs text-blue-400">{userRole}</p>
               </div>
             )}
           </div>
@@ -187,7 +216,11 @@ function DashboardContent({
           </div>
         </header>
 
-        <main className="p-4 lg:p-6">{children}</main>
+        <main className="p-4 lg:p-6">
+          <SocketProvider>
+            {children}
+          </SocketProvider>
+        </main>
       </div>
 
       {sidebarOpen && (
@@ -197,21 +230,5 @@ function DashboardContent({
         />
       )}
     </div>
-  );
-}
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-      </div>
-    }>
-      <DashboardContent>{children}</DashboardContent>
-    </Suspense>
   );
 }

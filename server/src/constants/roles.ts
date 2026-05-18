@@ -83,12 +83,3 @@ export const hasPermission = (role: UserRole, permission: string): boolean => {
   return ROLE_PERMISSIONS[role]?.includes(permission as any) ?? false;
 };
 
-export const canAccessResource = (
-  role: UserRole,
-  resourceOwnerId: string,
-  userId: string,
-  isAdmin: boolean
-): boolean => {
-  if (isAdmin || role === UserRole.ADMIN) return true;
-  return resourceOwnerId === userId;
-};

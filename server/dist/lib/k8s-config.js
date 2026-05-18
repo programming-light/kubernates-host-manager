@@ -7,6 +7,56 @@ const CONNECT_TIMEOUT = parseInt(process.env.K8S_CONNECT_TIMEOUT || '30000', 10)
 class KubernetesConfigManager {
     kc = null;
     cachedConfig = null;
+    apis = {};
+    get coreApi() {
+        if (!this.apis.coreApi)
+            this.apis.coreApi = this.makeApi(k8s.CoreV1Api);
+        return this.apis.coreApi;
+    }
+    get appsApi() {
+        if (!this.apis.appsApi)
+            this.apis.appsApi = this.makeApi(k8s.AppsV1Api);
+        return this.apis.appsApi;
+    }
+    get networkingApi() {
+        if (!this.apis.networkingApi)
+            this.apis.networkingApi = this.makeApi(k8s.NetworkingV1Api);
+        return this.apis.networkingApi;
+    }
+    get batchApi() {
+        if (!this.apis.batchApi)
+            this.apis.batchApi = this.makeApi(k8s.BatchV1Api);
+        return this.apis.batchApi;
+    }
+    get versionApi() {
+        if (!this.apis.versionApi)
+            this.apis.versionApi = this.makeApi(k8s.VersionApi);
+        return this.apis.versionApi;
+    }
+    get autoscalingApi() {
+        if (!this.apis.autoscalingApi)
+            this.apis.autoscalingApi = this.makeApi(k8s.AutoscalingV2Api);
+        return this.apis.autoscalingApi;
+    }
+    get customObjectsApi() {
+        if (!this.apis.customObjectsApi)
+            this.apis.customObjectsApi = this.makeApi(k8s.CustomObjectsApi);
+        return this.apis.customObjectsApi;
+    }
+    get rbacApi() {
+        if (!this.apis.rbacApi)
+            this.apis.rbacApi = this.makeApi(k8s.RbacAuthorizationV1Api);
+        return this.apis.rbacApi;
+    }
+    makeApi(ctor) {
+        if (!this.kc)
+            throw new Error('KubeConfig not loaded');
+        return this.kc.makeApiClient(ctor);
+    }
+    clearCache() {
+        this.cachedConfig = null;
+        this.apis = {};
+    }
     async loadConfig() {
         if (this.cachedConfig) {
             return this.cachedConfig;
@@ -38,12 +88,21 @@ class KubernetesConfigManager {
             this.applyTimeoutSettings();
             const cluster = this.kc.getCurrentCluster();
             log.info(`Kubernetes config loaded for ${provider}: ${cluster?.server}`);
+            let isConnected = false;
+            try {
+                await this.testConnection();
+                isConnected = true;
+                log.info(`Kubernetes connection test passed for ${provider}`);
+            }
+            catch (error) {
+                log.warn(`Kubernetes cluster not reachable for ${provider}: ${error.message}`);
+            }
             this.cachedConfig = {
                 provider,
                 kubeConfig: this.kc,
                 apiServer: cluster?.server || '',
                 namespace: process.env.DEFAULT_NAMESPACE || 'default',
-                connected: true,
+                connected: isConnected,
             };
             return this.cachedConfig;
         }
@@ -343,7 +402,7 @@ class KubernetesConfigManager {
             // Try Windows default location
             const home = process.env.USERPROFILE || process.env.HOME || '';
             const windowsPaths = [
-                'C:\\Users\\' + home + '\\.kube\\config',
+                path.join(home, '.kube', 'config'),
                 'C:\\Program Files\\Minikube\\kubeconfig',
                 '~/.kube/config',
             ];

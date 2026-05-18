@@ -1,14 +1,24 @@
-import type { NextConfig } from 'next';
 import path from 'path';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
+  reactStrictMode: false,
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
   },
-  // Fix Turbopack workspace detection
-  turbopack: {
-    root: path.resolve(__dirname),
+  images: {
+    remotePatterns: [],
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/:path*`,
+      },
+    ];
   },
 };
 

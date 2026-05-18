@@ -1,9 +1,12 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import api from './api';
+import { createContext, useContext, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { logout as serverLogout } from '@/app/actions';
+import { useCurrentUser } from '@/lib/queries/auth';
 import { User } from './types';
+import { useQueryClient } from '@tanstack/react-query';
+import { authKeys } from '@/lib/queries/auth';
 
 interface AuthContextType {
   user: User | null;
@@ -16,57 +19,21 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (token) {
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!loading && !user && pathname !== '/auth') {
-      const currentPath = pathname;
-      if (currentPath?.startsWith('/dashboard')) {
-        router.push('/auth');
-      }
-    }
-  }, [loading, user, pathname, router]);
-
-  const fetchUser = async () => {
-    try {
-      const response = await api.get('/auth/me');
-      const data = await response.json();
-      setUser(data);
-    } catch {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const qc = useQueryClient();
+  const { data: user, isLoading } = useCurrentUser();
 
   const refreshUser = async () => {
-    await fetchUser();
+    await qc.invalidateQueries({ queryKey: authKeys.me });
   };
 
-  const logout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    setUser(null);
-    router.push('/auth');
+  const logout = async () => {
+    await serverLogout();
+    qc.setQueryData(authKeys.me, null);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, isAuthenticated: !!user, logout, refreshUser }}
+      value={{ user: user || null, loading: isLoading, isAuthenticated: !!user, logout, refreshUser }}
     >
       {children}
     </AuthContext.Provider>
@@ -75,6 +42,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  if (!context) {
+    if (typeof window === 'undefined') {
+      return { user: null, loading: true, isAuthenticated: false, logout: () => {}, refreshUser: async () => {} };
+    }
+    throw new Error('useAuth must be used within AuthProvider');
+  }
   return context;
 }

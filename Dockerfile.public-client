@@ -1,0 +1,20 @@
+# Public Client - Static Frontend with ISR
+FROM node:20-alpine AS base
+
+# Install dependencies
+WORKDIR /app
+COPY public-client/package*.json ./
+RUN npm install
+
+# Copy source
+COPY public-client/ .
+
+# Build the app (SSG/ISR)
+RUN npm run build
+
+# Production server
+EXPOSE 3002
+ENV PORT=3002
+ENV NODE_ENV=production
+
+CMD ["npm", "start"]

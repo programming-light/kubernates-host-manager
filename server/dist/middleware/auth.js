@@ -1,58 +1,60 @@
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma.js';
 import { UserRole, hasPermission } from '../constants/roles.js';
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
-function getTokenFromRequest(req) {
-    const authHeader = req.headers.authorization;
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+function getTokenFromRequest(request) {
+    const authHeader = request.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
         return authHeader.split(' ')[1];
     }
-    const cookieHeader = req.headers.cookie;
+    const cookieHeader = request.headers.cookie;
     if (cookieHeader) {
         const cookies = Object.fromEntries(cookieHeader.split('; ').map(c => c.split('=')));
         return cookies['accessToken'] || null;
     }
     return null;
 }
-export async function authMiddleware(req, res, next) {
-    const token = getTokenFromRequest(req);
+export async function authMiddleware(request, reply) {
+    const token = getTokenFromRequest(request);
     if (!token) {
-        return res.status(401).json({ error: 'Unauthorized', message: 'No token provided' });
+        reply.status(401).send({ error: 'Unauthorized', message: 'No token provided' });
+        return;
     }
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        req.userId = decoded.userId;
+        request.userId = decoded.userId;
         const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
         if (!user) {
-            return res.status(401).json({ error: 'Unauthorized', message: 'User not found' });
+            reply.status(401).send({ error: 'Unauthorized', message: 'User not found' });
+            return;
         }
-        req.userRole = user.role;
-        next();
+        request.userRole = user.role;
     }
     catch {
-        return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired token' });
+        reply.status(401).send({ error: 'Unauthorized', message: 'Invalid or expired token' });
     }
 }
 export function requireRole(...roles) {
-    return (req, res, next) => {
-        if (!req.userRole || !roles.includes(req.userRole)) {
-            return res.status(403).json({
+    return (request, reply) => {
+        if (!request.userRole || !roles.includes(request.userRole)) {
+            reply.status(403).send({
                 error: 'Forbidden',
-                message: `Required role: ${roles.join(' or ')}`
+                message: `Required role: ${roles.join(' or ')}`,
             });
         }
-        next();
     };
 }
 export function requirePermission(permission) {
-    return (req, res, next) => {
-        if (!req.userRole || !hasPermission(req.userRole, permission)) {
-            return res.status(403).json({
+    return (request, reply) => {
+        if (!request.userRole || !hasPermission(request.userRole, permission)) {
+            reply.status(403).send({
                 error: 'Forbidden',
-                message: `Permission required: ${permission}`
+                message: `Permission required: ${permission}`,
             });
         }
-        next();
     };
 }
 export const adminMiddleware = requireRole(UserRole.ADMIN);

@@ -10,6 +10,17 @@ export interface K8sConfig {
 declare class KubernetesConfigManager {
     private kc;
     private cachedConfig;
+    private apis;
+    get coreApi(): k8s.CoreV1Api;
+    get appsApi(): k8s.AppsV1Api;
+    get networkingApi(): k8s.NetworkingV1Api;
+    get batchApi(): k8s.BatchV1Api;
+    get versionApi(): k8s.VersionApi;
+    get autoscalingApi(): any;
+    get customObjectsApi(): any;
+    get rbacApi(): k8s.RbacAuthorizationV1Api;
+    private makeApi;
+    clearCache(): void;
     loadConfig(): Promise<K8sConfig>;
     private loadProviderConfig;
     private autoDetectProvider;

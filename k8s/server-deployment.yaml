@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-platform-server
+  namespace: k8s-platform
+  labels:
+    app: k8s-platform-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: k8s-platform-server
+  template:
+    metadata:
+      labels:
+        app: k8s-platform-server
+    spec:
+      containers:
+        - name: server
+          image: k8s-platform-server:latest
+          ports:
+            - containerPort: 3001
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3001"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET
+            - name: REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: REFRESH_SECRET
+            - name: CLIENT_URL
+              value: "http://localhost:3000"
+            - name: K8S_PROVIDER
+              value: "in-cluster"
+            - name: DEFAULT_NAMESPACE
+              value: "k8s-platform"
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-platform-server-service
+  namespace: k8s-platform
+  labels:
+    app: k8s-platform-server
+spec:
+  selector:
+    app: k8s-platform-server
+  ports:
+    - port: 3001
+      targetPort: 3001
+      name: http
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k8s-platform-server-ingress
+  namespace: k8s-platform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - api.yourdomain.com
+      secretName: k8s-platform-server-tls
+  rules:
+    - host: api.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: k8s-platform-server-service
+                port:
+                  number: 3001

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAuthStore, useClusterStore, useProjectStore } from '@/store';
+import { useAuth } from '@/lib/auth-context';
+import { useClusterStore, useProjectStore } from '@/store';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,6 @@ import {
   Loader2, 
   Activity, 
   MapPin, 
-  Cloud,
   ArrowLeft,
   Plus,
   Trash2,
@@ -27,7 +27,7 @@ import Link from 'next/link';
 export default function ClusterDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const { projects, setProjects } = useProjectStore();
   const [cluster, setCluster] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -154,7 +154,7 @@ export default function ClusterDetailPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
-              <Cloud className="h-5 w-5 text-gray-400" />
+              <Server className="h-5 w-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-500">Provider</p>
                 <p className="text-white">{cluster.provider}</p>

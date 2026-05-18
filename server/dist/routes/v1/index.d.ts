@@ -1,2 +1,2 @@
-declare const router: import("express-serve-static-core").Router;
-export default router;
+import { FastifyInstance } from 'fastify';
+export default function (router: FastifyInstance): Promise<void>;

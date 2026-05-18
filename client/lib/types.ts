@@ -1,7 +1,16 @@
 export enum UserRole {
-  ADMIN = 'admin',
-  DEVELOPER = 'developer',
-  VIEWER = 'viewer',
+  ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
+  DEVELOPER = 'DEVELOPER',
+  VIEWER = 'VIEWER',
+  BILLING = 'BILLING',
+}
+
+export enum UserStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  SUSPENDED = 'SUSPENDED',
+  PENDING = 'PENDING',
 }
 
 export interface User {
@@ -22,6 +31,11 @@ export interface Workspace {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  memberRole?: 'OWNER' | 'ADMIN' | 'DEVELOPER' | 'VIEWER' | 'BILLING' | 'MANAGER';
+  _count?: {
+    projects: number;
+    members: number;
+  };
 }
 
 export interface Cluster {
@@ -36,6 +50,18 @@ export interface Cluster {
   workspace?: Workspace;
 }
 
+export interface Domain {
+  id: string;
+  projectId: string;
+  domain: string;
+  isCustom: boolean;
+  isPrimary: boolean;
+  sslEnabled: boolean;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   workspaceId: string;
@@ -47,6 +73,8 @@ export interface Project {
   status: string;
   namespace: string;
   replicas: number;
+  domains?: Domain[];
+  previewUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -125,6 +153,7 @@ export interface K8sDeployment {
   replicas?: number;
   readyReplicas?: number;
   availableReplicas?: number;
+  status: string;
   age: string;
   images: string[];
 }

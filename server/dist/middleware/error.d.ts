@@ -1,3 +1,3 @@
-import { Request, Response, NextFunction } from 'express';
-export declare function errorHandler(err: any, req: Request, res: Response, next: NextFunction): Response<any, Record<string, any>> | undefined;
-export declare function notFoundHandler(req: Request, res: Response): void;
+import { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
+export declare function errorHandler(error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply<import("fastify").RouteGenericInterface, import("fastify").RawServerDefault, import("http").IncomingMessage, import("http").ServerResponse<import("http").IncomingMessage>, unknown, import("fastify").FastifySchema, import("fastify").FastifyTypeProviderDefault, unknown> | undefined;
+export declare function notFoundHandler(request: FastifyRequest, reply: FastifyReply): void;

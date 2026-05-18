@@ -1,115 +1,77 @@
-/**
- * @swagger
- * tags:
- *   - name: Plans
- *     description: Pricing plans management
- */
-
-import { Router, Request, Response } from 'express';
-import { authMiddleware, adminMiddleware, type AuthRequest } from '../../middleware/auth.js';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { authMiddleware, adminMiddleware } from '../../middleware/auth.js';
+import { plans as schemas } from '../../schemas/index.js';
 import prisma from '../../lib/prisma.js';
 
-const router = Router();
-
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const plans = await prisma.pricingPlan.findMany({
-      where: { isActive: true },
-      orderBy: { price: 'asc' },
-    });
-    res.json(plans);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch plans' });
-  }
-});
-
-router.get('/:id', async (req: Request, res: Response) => {
-  try {
-    const plan = await prisma.pricingPlan.findUnique({
-      where: { id: req.params.id },
-    });
-    if (!plan) {
-      return res.status(404).json({ error: 'Not Found', message: 'Plan not found' });
+export default async function(router: FastifyInstance) {
+  router.get('/', { schema: schemas.list }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const plans = await prisma.pricingPlan.findMany({
+        where: { isActive: true },
+        orderBy: { price: 'asc' },
+      });
+      reply.send(plans);
+    } catch (error) {
+      reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to fetch plans' });
     }
-    res.json(plan);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch plan' });
-  }
-});
+  });
 
-router.post('/', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).userId;
-    const { name, slug, description, price, interval, isFeatured, features, limits } = req.body;
-
-    if (!name || !slug || price === undefined) {
-      return res.status(400).json({ error: 'Bad Request', message: 'Name, slug, and price are required' });
+  router.get('/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const plan = await prisma.pricingPlan.findUnique({
+        where: { id: (request.params as any).id },
+      });
+      if (!plan) return reply.status(404).send({ error: 'Not Found', message: 'Plan not found' });
+      reply.send(plan);
+    } catch (error) {
+      reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to fetch plan' });
     }
+  });
 
-    const existingPlan = await prisma.pricingPlan.findUnique({ where: { slug } });
-    if (existingPlan) {
-      return res.status(409).json({ error: 'Conflict', message: 'Plan with this slug already exists' });
+  router.post('/', { preHandler: [authMiddleware, adminMiddleware], schema: schemas.create }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { name, slug, description, price, interval, isFeatured, features, limits } = request.body as any;
+
+      if (!name || !slug || price === undefined) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Name, slug, and price are required' });
+      }
+
+      const existing = await prisma.pricingPlan.findUnique({ where: { slug } });
+      if (existing) return reply.status(409).send({ error: 'Conflict', message: 'Plan with this slug already exists' });
+
+      const plan = await prisma.pricingPlan.create({
+        data: { name, slug, description, price: Number(price), interval: interval || 'monthly', isFeatured: isFeatured || false, features: features || {}, limits: limits || {} },
+      });
+
+      reply.status(201).send(plan);
+    } catch (error) {
+      reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to create plan' });
     }
+  });
 
-    const plan = await prisma.pricingPlan.create({
-      data: {
-        name,
-        slug,
-        description,
-        price: Number(price),
-        interval: interval || 'monthly',
-        isFeatured: isFeatured || false,
-        features: features || {},
-        limits: limits || {},
-      },
-    });
+  router.put('/:id', { preHandler: [authMiddleware, adminMiddleware], schema: schemas.update }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { name, description, price, interval, isActive, isFeatured, features, limits } = request.body as any;
+      const { id } = request.params as any;
 
-    res.status(201).json(plan);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to create plan' });
-  }
-});
+      const plan = await prisma.pricingPlan.update({
+        where: { id },
+        data: { ...(name && { name }), ...(description !== undefined && { description }), ...(price !== undefined && { price: Number(price) }), ...(interval && { interval }), ...(isActive !== undefined && { isActive }), ...(isFeatured !== undefined && { isFeatured }), ...(features && { features }), ...(limits && { limits }) },
+      });
 
-router.put('/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).userId;
-    const { name, description, price, interval, isActive, isFeatured, features, limits } = req.body;
-    const { id } = req.params;
+      reply.send(plan);
+    } catch (error) {
+      reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to update plan' });
+    }
+  });
 
-    const plan = await prisma.pricingPlan.update({
-      where: { id },
-      data: {
-        ...(name && { name }),
-        ...(description !== undefined && { description }),
-        ...(price !== undefined && { price: Number(price) }),
-        ...(interval && { interval }),
-        ...(isActive !== undefined && { isActive }),
-        ...(isFeatured !== undefined && { isFeatured }),
-        ...(features && { features }),
-        ...(limits && { limits }),
-      },
-    });
-
-    res.json(plan);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to update plan' });
-  }
-});
-
-router.delete('/:id', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).userId;
-    const { id } = req.params;
-
-    await prisma.pricingPlan.update({
-      where: { id },
-      data: { isActive: false },
-    });
-
-    res.json({ message: 'Plan deactivated successfully' });
-  } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to delete plan' });
-  }
-});
-
-export default router;
+  router.delete('/:id', { preHandler: [authMiddleware, adminMiddleware], schema: schemas.remove }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as any;
+      await prisma.pricingPlan.update({ where: { id }, data: { isActive: false } });
+      reply.send({ message: 'Plan deactivated successfully' });
+    } catch (error) {
+      reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to delete plan' });
+    }
+  });
+}

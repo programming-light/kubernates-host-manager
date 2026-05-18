@@ -1,7 +1,10 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useState } from 'react';
-import { useAuthStore, useBillingStore } from '@/store';
+import { useAuth } from '@/lib/auth-context';
+import { useBillingStore } from '@/store';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,7 +32,7 @@ const resourceIcons: Record<string, React.ReactNode> = {
 };
 
 export default function BillingPage() {
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const { subscription, resources, setSubscription, setResources } = useBillingStore();
   const [loading, setLoading] = useState(true);
   const [billingInfo, setBillingInfo] = useState<{

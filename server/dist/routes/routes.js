@@ -1,12 +1,11 @@
-import { Router } from 'express';
 import v1Routes from './v1/index.js';
-const router = Router();
-router.use('/v1', v1Routes);
-router.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
+export default async function (router) {
+    await router.register(v1Routes, { prefix: '/v1' });
+    router.get('/health', async () => {
+        return {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+        };
     });
-});
-export default router;
+}

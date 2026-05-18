@@ -1,125 +1,138 @@
-/**
- * @swagger
- * tags:
- *   - name: Deployments
- *     description: Deployment management
- */
-import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.js';
+import { deployments as schemas } from '../../schemas/index.js';
 import prisma from '../../lib/prisma.js';
 import log from '../../lib/logger.js';
-const router = Router();
-router.get('/', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId;
-        const { projectId } = req.query;
-        const where = {};
-        if (projectId)
-            where.projectId = projectId;
-        const deployments = await prisma.deployment.findMany({
-            where,
-            include: { project: true },
-            orderBy: { createdAt: 'desc' },
-        });
-        res.json(deployments);
-    }
-    catch (error) {
-        log.error('Error fetching deployments:', error);
-        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch deployments' });
-    }
-});
-router.post('/', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId;
-        const { projectId, environment, version, config } = req.body;
-        if (!projectId || !environment) {
-            return res.status(400).json({ error: 'Bad Request', message: 'projectId and environment are required' });
+export default async function (router) {
+    router.get('/', { preHandler: [authMiddleware], schema: schemas.list }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const { projectId, page, limit } = request.query;
+            const where = {
+                project: { workspace: { ownerId: userId } },
+            };
+            if (projectId)
+                where.projectId = projectId;
+            const skip = (Number(page || 1) - 1) * Number(limit || 20);
+            const [deployments, total] = await Promise.all([
+                prisma.deployment.findMany({
+                    where,
+                    include: { project: { include: { workspace: true } } },
+                    orderBy: { createdAt: 'desc' },
+                    skip,
+                    take: Number(limit || 20),
+                }),
+                prisma.deployment.count({ where }),
+            ]);
+            reply.send({ data: deployments, pagination: { page: Number(page || 1), limit: Number(limit || 20), total, pages: Math.ceil(total / Number(limit || 20)) } });
         }
-        const project = await prisma.project.findUnique({
-            where: { id: projectId },
-            include: { workspace: true },
-        });
-        if (!project || project.workspace.ownerId !== userId) {
-            return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
+        catch (error) {
+            log.error('Error fetching deployments:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to fetch deployments' });
         }
-        const deployment = await prisma.deployment.create({
-            data: {
-                projectId,
-                environment,
-                version: version || 'v1.0.0',
-                status: 'pending',
-                config,
-            },
-        });
-        log.info(`Deployment created: ${deployment.id} for project: ${projectId}`);
-        res.status(201).json(deployment);
-    }
-    catch (error) {
-        log.error('Error creating deployment:', error);
-        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to create deployment' });
-    }
-});
-router.get('/:id', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId;
-        const deployment = await prisma.deployment.findUnique({
-            where: { id: req.params.id },
-            include: { project: { include: { workspace: true } } },
-        });
-        if (!deployment) {
-            return res.status(404).json({ error: 'Not Found', message: 'Deployment not found' });
+    });
+    router.post('/', { preHandler: [authMiddleware], schema: schemas.create }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const { projectId, environment, version, config } = request.body;
+            if (!projectId || !environment) {
+                return reply.status(400).send({ error: 'Bad Request', message: 'projectId and environment are required' });
+            }
+            const project = await prisma.project.findUnique({
+                where: { id: projectId },
+                include: { workspace: true },
+            });
+            if (!project || project.workspace.ownerId !== userId) {
+                return reply.status(403).send({ error: 'Forbidden', message: 'Access denied' });
+            }
+            const deployment = await prisma.deployment.create({
+                data: { projectId, environment, version: version || 'v1.0.0', status: 'pending', config },
+            });
+            log.info(`Deployment created: ${deployment.id} for project: ${projectId}`);
+            reply.status(201).send(deployment);
         }
-        if (deployment.project.workspace.ownerId !== userId) {
-            return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
+        catch (error) {
+            log.error('Error creating deployment:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to create deployment' });
         }
-        res.json(deployment);
-    }
-    catch (error) {
-        log.error('Error fetching deployment:', error);
-        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch deployment' });
-    }
-});
-router.put('/:id', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId;
-        const { status, version } = req.body;
-        const deployment = await prisma.deployment.findUnique({
-            where: { id: req.params.id },
-            include: { project: { include: { workspace: true } } },
-        });
-        if (!deployment || deployment.project.workspace.ownerId !== userId) {
-            return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
+    });
+    router.get('/:id', { preHandler: [authMiddleware], schema: schemas.getById }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const deployment = await prisma.deployment.findUnique({
+                where: { id: request.params.id },
+                include: { project: { include: { workspace: true } } },
+            });
+            if (!deployment) {
+                return reply.status(404).send({ error: 'Not Found', message: 'Deployment not found' });
+            }
+            if (deployment.project.workspace.ownerId !== userId) {
+                return reply.status(403).send({ error: 'Forbidden', message: 'Access denied' });
+            }
+            reply.send(deployment);
         }
-        const updated = await prisma.deployment.update({
-            where: { id: req.params.id },
-            data: {
-                ...(status && { status }),
-                ...(version && { version }),
-            },
-        });
-        res.json(updated);
-    }
-    catch (error) {
-        log.error('Error updating deployment:', error);
-        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to update deployment' });
-    }
-});
-router.delete('/:id', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId;
-        const deployment = await prisma.deployment.findUnique({
-            where: { id: req.params.id },
-            include: { project: { include: { workspace: true } } },
-        });
-        if (!deployment || deployment.project.workspace.ownerId !== userId) {
-            return res.status(403).json({ error: 'Forbidden', message: 'Access denied' });
+        catch (error) {
+            log.error('Error fetching deployment:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to fetch deployment' });
         }
-        await prisma.deployment.delete({ where: { id: req.params.id } });
-        res.status(204).send();
-    }
-    catch (error) {
-        log.error('Error deleting deployment:', error);
-        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to delete deployment' });
-    }
-});
-export default router;
+    });
+    router.put('/:id', { preHandler: [authMiddleware] }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const { status, version } = request.body;
+            const deployment = await prisma.deployment.findUnique({
+                where: { id: request.params.id },
+                include: { project: { include: { workspace: true } } },
+            });
+            if (!deployment || deployment.project.workspace.ownerId !== userId) {
+                return reply.status(403).send({ error: 'Forbidden', message: 'Access denied' });
+            }
+            const updated = await prisma.deployment.update({
+                where: { id: request.params.id },
+                data: { ...(status && { status }), ...(version && { version }) },
+            });
+            reply.send(updated);
+        }
+        catch (error) {
+            log.error('Error updating deployment:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to update deployment' });
+        }
+    });
+    router.post('/:id/rollback', { preHandler: [authMiddleware], schema: schemas.rollback }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const deployment = await prisma.deployment.findUnique({
+                where: { id: request.params.id },
+                include: { project: { include: { workspace: true } } },
+            });
+            if (!deployment) {
+                return reply.status(404).send({ error: 'Not Found', message: 'Deployment not found' });
+            }
+            if (deployment.project.workspace.ownerId !== userId) {
+                return reply.status(403).send({ error: 'Forbidden', message: 'Access denied' });
+            }
+            reply.send({ message: 'Rollback initiated', deploymentId: request.params.id });
+        }
+        catch (error) {
+            log.error('Error rolling back deployment:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: error.message });
+        }
+    });
+    router.delete('/:id', { preHandler: [authMiddleware] }, async (request, reply) => {
+        try {
+            const userId = request.userId;
+            const deployment = await prisma.deployment.findUnique({
+                where: { id: request.params.id },
+                include: { project: { include: { workspace: true } } },
+            });
+            if (!deployment || deployment.project.workspace.ownerId !== userId) {
+                return reply.status(403).send({ error: 'Forbidden', message: 'Access denied' });
+            }
+            await prisma.deployment.delete({ where: { id: request.params.id } });
+            reply.status(204).send();
+        }
+        catch (error) {
+            log.error('Error deleting deployment:', error);
+            reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to delete deployment' });
+        }
+    });
+}

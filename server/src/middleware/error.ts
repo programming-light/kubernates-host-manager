@@ -1,40 +1,33 @@
-import { Request, Response, NextFunction } from 'express';
+import { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
 import log from '../lib/logger.js';
 
-export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
-  log.error('Error:', err);
+export function errorHandler(error: FastifyError, request: FastifyRequest, reply: FastifyReply) {
+  log.error('Error:', error);
 
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
+  if (error.validation) {
+    return reply.status(400).send({
       error: 'Validation Error',
-      message: err.message,
-      details: err.details,
+      message: error.message,
+      details: error.validation,
     });
   }
 
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Invalid authentication credentials',
+  if (error.statusCode) {
+    return reply.status(error.statusCode).send({
+      error: error.name || 'Error',
+      message: error.message,
     });
   }
 
-  if (err.statusCode) {
-    return res.status(err.statusCode).json({
-      error: err.name || 'Error',
-      message: err.message,
-    });
-  }
-
-  res.status(500).json({
+  reply.status(500).send({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
   });
 }
 
-export function notFoundHandler(req: Request, res: Response) {
-  res.status(404).json({
+export function notFoundHandler(request: FastifyRequest, reply: FastifyReply) {
+  reply.status(404).send({
     error: 'Not Found',
-    message: `Route ${req.method} ${req.path} not found`,
+    message: `Route ${request.method} ${request.url} not found`,
   });
 }

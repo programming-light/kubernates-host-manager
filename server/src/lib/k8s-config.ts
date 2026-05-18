@@ -28,9 +28,71 @@ export interface K8sConfig {
 const REQUEST_TIMEOUT = parseInt(process.env.K8S_REQUEST_TIMEOUT || '60000', 10);
 const CONNECT_TIMEOUT = parseInt(process.env.K8S_CONNECT_TIMEOUT || '30000', 10);
 
+interface CachedApis {
+  coreApi?: k8s.CoreV1Api;
+  appsApi?: k8s.AppsV1Api;
+  networkingApi?: k8s.NetworkingV1Api;
+  batchApi?: k8s.BatchV1Api;
+  versionApi?: k8s.VersionApi;
+  autoscalingApi?: any;
+  customObjectsApi?: any;
+  rbacApi?: k8s.RbacAuthorizationV1Api;
+}
+
 class KubernetesConfigManager {
   private kc: k8s.KubeConfig | null = null;
   private cachedConfig: K8sConfig | null = null;
+  private apis: CachedApis = {};
+
+  get coreApi(): k8s.CoreV1Api {
+    if (!this.apis.coreApi) this.apis.coreApi = this.makeApi(k8s.CoreV1Api);
+    return this.apis.coreApi;
+  }
+
+  get appsApi(): k8s.AppsV1Api {
+    if (!this.apis.appsApi) this.apis.appsApi = this.makeApi(k8s.AppsV1Api);
+    return this.apis.appsApi;
+  }
+
+  get networkingApi(): k8s.NetworkingV1Api {
+    if (!this.apis.networkingApi) this.apis.networkingApi = this.makeApi(k8s.NetworkingV1Api);
+    return this.apis.networkingApi;
+  }
+
+  get batchApi(): k8s.BatchV1Api {
+    if (!this.apis.batchApi) this.apis.batchApi = this.makeApi(k8s.BatchV1Api);
+    return this.apis.batchApi;
+  }
+
+  get versionApi(): k8s.VersionApi {
+    if (!this.apis.versionApi) this.apis.versionApi = this.makeApi(k8s.VersionApi);
+    return this.apis.versionApi;
+  }
+
+  get autoscalingApi(): any {
+    if (!this.apis.autoscalingApi) this.apis.autoscalingApi = this.makeApi(k8s.AutoscalingV2Api);
+    return this.apis.autoscalingApi;
+  }
+
+  get customObjectsApi(): any {
+    if (!this.apis.customObjectsApi) this.apis.customObjectsApi = this.makeApi(k8s.CustomObjectsApi);
+    return this.apis.customObjectsApi;
+  }
+
+  get rbacApi(): k8s.RbacAuthorizationV1Api {
+    if (!this.apis.rbacApi) this.apis.rbacApi = this.makeApi(k8s.RbacAuthorizationV1Api);
+    return this.apis.rbacApi;
+  }
+
+  private makeApi<T>(ctor: any): T {
+    if (!this.kc) throw new Error('KubeConfig not loaded');
+    return this.kc.makeApiClient(ctor) as T;
+  }
+
+  clearCache() {
+    this.cachedConfig = null;
+    this.apis = {};
+  }
 
   async loadConfig(): Promise<K8sConfig> {
     if (this.cachedConfig) {
@@ -346,7 +408,7 @@ class KubernetesConfigManager {
       if (fs.existsSync(p)) {
         try {
           return fs.readFileSync(p, 'utf8').trim();
-        } catch {}
+        } catch (error) { log.warn(`[k8s-config] Failed to read K3s token from ${p}: ${(error as Error).message}`); }
       }
     }
     return null;
@@ -387,7 +449,7 @@ class KubernetesConfigManager {
       // Try Windows default location
       const home = process.env.USERPROFILE || process.env.HOME || '';
       const windowsPaths = [
-        'C:\\Users\\' + home + '\\.kube\\config',
+        path.join(home, '.kube', 'config'),
         'C:\\Program Files\\Minikube\\kubeconfig',
         '~/.kube/config',
       ];
@@ -419,7 +481,7 @@ class KubernetesConfigManager {
           this.kc!.loadFromString(kubeconfig);
           return true;
         }
-      } catch {}
+      } catch (error) { log.warn(`[k8s-config] Failed to exec minikube kubeconfig: ${(error as Error).message}`); }
 
       return false;
     } catch {
@@ -902,6 +964,12 @@ class KubernetesConfigManager {
 
   getConfig(): k8s.KubeConfig | null {
     return this.kc;
+  }
+
+  getApiServerUrl(): string | null {
+    if (!this.kc) return null;
+    const cluster = this.kc.getCurrentCluster();
+    return cluster?.server || null;
   }
 }
 

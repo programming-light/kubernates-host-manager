@@ -30,6 +30,26 @@ enum SubscriptionStatus {
   TRIALING
 }
 
+enum PipelineStatus {
+  IDLE
+  BUILDING
+  DEPLOYING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum EnvScope {
+  PROJECT
+  WORKSPACE
+}
+
+enum EnvEnvironment {
+  DEVELOPMENT
+  PREVIEW
+  PRODUCTION
+}
+
 model User {
   id        String     @id @default(cuid())
   email     String     @unique
@@ -39,27 +59,90 @@ model User {
   status    UserStatus @default(PENDING)
   company   String?
   avatar    String?
-  phone    String?
-  createdAt DateTime   @default(now())
+  phone     String?
+  githubToken   String?
+  githubUsername String?
+  gitlabToken   String?
+  gitlabUsername String?
+  giteaToken    String?
+  giteaUsername String?
+  giteaUrl      String?
+  createdAt   DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
   workspaces     Workspace[]
+  workspaceMembers WorkspaceMember[]
+  projects       Project[]
   subscription  Subscription?
   payments     Payment[]
   userResources UserResource[]
+  billingRecords BillingRecord[]
+  pipelines    CICDPipeline[]
+  sessions     Session[]
+  githubInstallations GitHubInstallation[]
+}
+
+model GitHubInstallation {
+  id             String   @id @default(cuid())
+  userId         String
+  installationId Int
+  orgLogin       String
+  orgAvatar      String?
+  permissions    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, installationId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
 }
 
 model Workspace {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  ownerId   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   owner    User        @relation(fields: [ownerId], references: [id])
   clusters Cluster[]
   projects Project[]
+  members  WorkspaceMember[]
+  envVars  EnvironmentVariable[]
+  databases DatabaseInstance[]
+ }
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        UserRole  @default(DEVELOPER)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
 }
 
 model PricingPlan {
@@ -141,32 +224,253 @@ model Cluster {
 }
 
 model Project {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  name         String
-  slug        String
-  description String?
-  gitUrl     String?
-  status     String    @default("active")
-  clusterId  String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  workspaceId     String
+  userId          String
+  name           String
+  slug          String
+  description   String?
+  gitUrl        String
+  status       String    @default("active")
+  clusterId    String
+  namespace    String
+  replicas     Int       @default(1)
+  branch       String    @default("main")
+  buildCommand String?
+  runCommand   String?
+  rootDir      String?
+  buildPack    String?
+  port         Int?
+  healthCheckPath String?
+  currentImageTag String?
+  autoDeploy    Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id])
-  cluster     Cluster    @relation(fields: [clusterId], references: [id])
-  deployments Deployment[]
+   workspace   Workspace  @relation(fields: [workspaceId], references: [id])
+   cluster     Cluster    @relation(fields: [clusterId], references: [id])
+   user        User       @relation(fields: [userId], references: [id])
+   deployments Deployment[]
+   billingRecords BillingRecord[]
+   pipelines   CICDPipeline[]
+   domains     Domain[]
+   managedNamespace ManagedNamespace?
+   databases DatabaseInstance[]
+  }
+
+model ManagedNamespace {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+  name          String   @unique
+  status        String   @default("active")
+  labels        Json?
+  resourceQuota Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Domain {
+  id          String   @id @default(cuid())
+  projectId   String
+  domain      String
+  isCustom    Boolean  @default(false)
+  isPrimary   Boolean  @default(false)
+  sslEnabled  Boolean  @default(true)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, domain])
 }
 
 model Deployment {
   id          String   @id @default(cuid())
   projectId   String
-  environment String
+  environment String   @default("production")
   version    String
+  imageTag   String?
   status     String   @default("pending")
   config     Json?
   deployedAt DateTime?
+  rollbackFrom String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   project     Project   @relation(fields: [projectId], references: [id])
+}
+
+model CICDPipeline {
+  id            String          @id @default(cuid())
+  projectId     String
+  userId        String
+  gitUrl        String
+  branch        String          @default("main")
+  status        PipelineStatus  @default(IDLE)
+  buildLog      String?
+  deployLog     String?
+  imageTag      String?
+  lastCommitSha String?
+  lastCommitMsg String?
+  triggeredBy   String          @default("manual")
+  duration      Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  project       Project         @relation(fields: [projectId], references: [id])
+  user          User            @relation(fields: [userId], references: [id])
+}
+
+model BillingRecord {
+  id            String    @id @default(cuid())
+  userId        String
+  projectId     String?
+  resourceType  String
+  resourceName  String
+  quantity      Float     @default(1)
+  unit          String
+  costPerUnit   Float     @default(0)
+  totalCost     Float     @default(0)
+  periodStart   DateTime  @default(now())
+  periodEnd     DateTime?
+  status        String    @default("active")
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user          User       @relation(fields: [userId], references: [id])
+  project       Project?   @relation(fields: [projectId], references: [id])
+}
+
+model EnvironmentVariable {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  scope         EnvScope      @default(PROJECT)
+  environment   EnvEnvironment @default(PRODUCTION)
+  envData       String        @default("")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, environment], name: "workspace_env_unique")
+  @@index([workspaceId, environment])
+}
+
+enum DatabaseType {
+  POSTGRESQL
+  MYSQL
+  MARIADB
+  MONGODB
+  FERRETDB
+  REDIS
+  SQLITE
+}
+
+enum DatabaseStatus {
+  PROVISIONING
+  RUNNING
+  FAILED
+  DELETING
+  DELETED
+}
+
+model DatabaseInstance {
+  id                 String         @id @default(cuid())
+  workspaceId         String
+  projectId          String?
+  name               String
+  type               DatabaseType
+  version            String         @default("latest")
+  status             DatabaseStatus @default(PROVISIONING)
+  namespace          String
+  storageSize        String         @default("1Gi")
+  storageClass       String?
+  port               Int
+  dbName             String
+  dbUser             String
+  dbPassword         String
+  connectionString   String
+  sslEnabled         Boolean        @default(false)
+  ipWhitelistEnabled Boolean        @default(false)
+  labels             Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  workspace          Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project            Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  users              DatabaseUser[]
+  ipWhitelist        DatabaseIpWhitelist[]
+
+  @@unique([workspaceId, name])
+  @@unique([workspaceId, namespace])
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+enum DatabasePermission {
+  READ_ONLY
+  READ_WRITE
+  ADMIN
+  DBA
+}
+
+model DatabaseUser {
+  id         String             @id @default(cuid())
+  databaseId String
+  username   String
+  password   String
+  permission DatabasePermission @default(READ_WRITE)
+  createdAt  DateTime           @default(now())
+
+  database   DatabaseInstance   @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+
+  @@unique([databaseId, username])
+  @@index([databaseId])
+}
+
+model DatabaseIpWhitelist {
+  id         String           @id @default(cuid())
+  databaseId String
+  cidr       String
+  description String?
+  createdAt  DateTime         @default(now())
+
+  database   DatabaseInstance @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+
+  @@unique([databaseId, cidr])
+  @@index([databaseId])
+}
+
+model BlockedIP {
+  id        String   @id @default(cuid())
+  ip        String
+  reason    String?
+  blockedBy String?
+  isActive  Boolean  @default(true)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ip])
+  @@index([ip, isActive])
+}
+
+model RequestLog {
+  id        String   @id @default(cuid())
+  ip        String
+  method    String
+  url       String
+  statusCode Int?
+  userId    String?
+  userAgent String?
+  referer   String?
+  duration  Int?
+  createdAt DateTime @default(now())
+
+  @@index([ip, createdAt])
+  @@index([createdAt])
 }

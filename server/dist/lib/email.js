@@ -1,13 +1,30 @@
 import nodemailer from 'nodemailer';
 import log from './logger.js';
 let transporter = null;
+async function createDevTransporter() {
+    try {
+        const testAccount = await nodemailer.createTestAccount();
+        const transport = nodemailer.createTransport({
+            host: 'smtp.ethereal.email',
+            port: 587,
+            secure: false,
+            auth: { user: testAccount.user, pass: testAccount.pass },
+        });
+        log.info(`Ethereal email ready. View at https://ethereal.email/login (${testAccount.user})`);
+        return transport;
+    }
+    catch {
+        log.warn('SMTP not configured. OTPs will be logged to console.');
+        return null;
+    }
+}
 function createTransporter() {
     const smtpHost = process.env.SMTP_HOST;
     const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
     const smtpUser = process.env.SMTP_USER;
     const smtpPass = process.env.SMTP_PASS;
     if (!smtpHost || !smtpUser || !smtpPass) {
-        log.warn('SMTP not configured. Email sending disabled.');
+        log.info('SMTP not configured. Email sending disabled.');
         return null;
     }
     const config = {
@@ -22,8 +39,14 @@ function createTransporter() {
     log.info(`SMTP configured: ${smtpHost}:${smtpPort}`);
     return nodemailer.createTransport(config);
 }
-export function initEmailService() {
+export async function initEmailService() {
     transporter = createTransporter();
+    if (!transporter && process.env.NODE_ENV === 'development') {
+        transporter = await createDevTransporter();
+        if (transporter) {
+            log.info('Using Ethereal test email service for development.');
+        }
+    }
 }
 export async function sendEmail(options) {
     if (!transporter) {
@@ -103,7 +126,5 @@ export async function sendOTPEmail(to, otp) {
     });
 }
 export function isEmailConfigured() {
-    return !!(process.env.SMTP_HOST &&
-        process.env.SMTP_USER &&
-        process.env.SMTP_PASS);
+    return !!transporter;
 }
