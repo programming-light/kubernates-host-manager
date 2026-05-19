@@ -1,0 +1,35 @@
+[33mcommit 441739ac46d1dd1b9f0a9ee06a8a5736e7111279[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev[m[33m, [m[1;31morigin/main[m[33m, [m[1;32mmain[m[33m)[m
+Author: Atiqur Rahman <s.atiqurrahman2003@gmail.com>
+Date:   Mon May 18 13:53:35 2026 +0600
+
+    I have made new project  with build pack though nixpack still not perfect but docker builder working ... and also implementing ghcr registry to register containers into github
+
+[33mcommit 21f279cc0e4612684048976f21458007f94dfddb[m
+Author: sayedatiqurrahman <s.atiqurrahman@gmail.com>
+Date:   Fri May 1 21:05:36 2026 +0600
+
+    fixe real time data problem in dashboard
+
+[33mcommit e83854803073df1b9fbef97d2b13f3afd883d609[m
+Author: sayedatiqurrahman <s.atiqurrahman@gmail.com>
+Date:   Fri May 1 12:31:15 2026 +0600
+
+    remove dist forlder
+
+[33mcommit 4d2c8c562e6ad524268f8f6b414b2c9d0139bf22[m
+Author: Atiqur Rahman <s.atiqurrahman2003@gmail.com>
+Date:   Thu Apr 23 13:39:13 2026 +0600
+
+    fixe frontends some issues... and also backends
+
+[33mcommit 77c73600e5b9bf05178d8f429a5413292aef010c[m
+Author: Atiqur Rahman <s.atiqurrahman2003@gmail.com>
+Date:   Wed Apr 8 22:18:36 2026 +0600
+
+    completed backend
+
+[33mcommit b11d5234f6fbcefd6e3d7805a6c3732b3492bde5[m[33m ([m[1;31morigin/master[m[33m)[m
+Author: Atiqur Rahman <s.atiqurrahman2003@gmail.com>
+Date:   Fri Apr 3 22:04:13 2026 +0600
+
+    making the project uptodate
